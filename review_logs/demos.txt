@@ -1,0 +1,249 @@
+{
+  "database": "/tmp/mom-travel-v06-skciajv5/demo.db",
+  "trip_case_id": "trip_6ff3e0980b3e",
+  "search_run_id": "fsearch_2dbe25e490e7",
+  "ranked": [
+    {
+      "airline": "CX",
+      "amount": 14900.0,
+      "score": 106.0
+    },
+    {
+      "airline": "CI",
+      "amount": 15320.0,
+      "score": 104.73
+    },
+    {
+      "airline": "JX",
+      "amount": 15780.0,
+      "score": 103.34
+    }
+  ],
+  "selected": {
+    "airline": "CX",
+    "option_id": "CX-demo-1"
+  },
+  "revalidation": {
+    "task_id": "browser_b5f1f350a5e2",
+    "search_task_id": "browser_7a2510f39dfa",
+    "option_id": "CX-demo-1",
+    "status": "changed",
+    "airline_code": "CX",
+    "source_url": "https://www.cathaypacific.com/cx/en_TW/book-a-trip.html",
+    "observed_at": "2026-08-25T16:52:58+00:00",
+    "match_confidence": "exact",
+    "currency": "TWD",
+    "original_amount": 14900.0,
+    "current_amount": 15200.0,
+    "delta_amount": 300.0,
+    "delta_percent": 2.013,
+    "fare_family_changed": false,
+    "itinerary_changed": false,
+    "rules_changed": false,
+    "requires_human_acceptance": true,
+    "blockers": [],
+    "warnings": [
+      "DEMO: price increased by TWD 300",
+      "DEMO DATA — not a live quotation",
+      "價格變動：TWD 14900 → TWD 15200"
+    ]
+  },
+  "preflight_before_acceptance": {
+    "ready": false,
+    "blockers": [
+      "價格或條件有變動，尚未明確接受"
+    ]
+  },
+  "preflight_after_acceptance": {
+    "ready": true,
+    "status": "ready_for_human_checkout",
+    "payment_handled_by_agent": false
+  },
+  "browser_lab": {
+    "schema_version": "browser-lab-summary-v2",
+    "tasks_total": 4,
+    "attempts_total": 4,
+    "overall_contract_validation_rate": 1.0,
+    "overall_usable_success_rate": 1.0,
+    "overall_success_rate": 1.0,
+    "providers": [
+      {
+        "provider_type": "airline",
+        "provider_key": "CI",
+        "provider_label": "CI",
+        "airline_code": "CI",
+        "tasks_total": 1,
+        "search_tasks": 1,
+        "revalidation_tasks": 0,
+        "hotel_search_tasks": 0,
+        "hotel_revalidation_tasks": 0,
+        "attempts_total": 1,
+        "recipe_versions": [
+          "1.1.0"
+        ],
+        "recipe_reviewed_dates": [
+          "2026-08-25"
+        ],
+        "openclaw_attempts": 0,
+        "lab_ingest_attempts": 1,
+        "auto_validated_tasks": 1,
+        "usable_result_tasks": 1,
+        "manual_terminal_tasks": 0,
+        "no_result_tasks": 0,
+        "needs_review_tasks": 0,
+        "validation_error_attempts": 0,
+        "manual_or_blocked_attempts": 0,
+        "contract_validation_rate": 1.0,
+        "usable_success_rate": 1.0,
+        "success_rate": 1.0,
+        "median_duration_ms": 19,
+        "outcomes": {
+          "completed": 1
+        },
+        "result_statuses": {
+          "ok": 1
+        }
+      },
+      {
+        "provider_type": "airline",
+        "provider_key": "CX",
+        "provider_label": "CX",
+        "airline_code": "CX",
+        "tasks_total": 2,
+        "search_tasks": 1,
+        "revalidation_tasks": 1,
+        "hotel_search_tasks": 0,
+        "hotel_revalidation_tasks": 0,
+        "attempts_total": 2,
+        "recipe_versions": [
+          "1.1.0"
+        ],
+        "recipe_reviewed_dates": [
+          "2026-08-25"
+        ],
+        "openclaw_attempts": 0,
+        "lab_ingest_attempts": 2,
+        "auto_validated_tasks": 2,
+        "usable_result_tasks": 2,
+        "manual_terminal_tasks": 0,
+        "no_result_tasks": 0,
+        "needs_review_tasks": 0,
+        "validation_error_attempts": 0,
+        "manual_or_blocked_attempts": 0,
+        "contract_validation_rate": 1.0,
+        "usable_success_rate": 1.0,
+        "success_rate": 1.0,
+        "median_duration_ms": 16,
+        "outcomes": {
+          "completed": 2
+        },
+        "result_statuses": {
+          "found": 1,
+          "ok": 1
+        }
+      },
+      {
+        "provider_type": "airline",
+        "provider_key": "JX",
+        "provider_label": "JX",
+        "airline_code": "JX",
+        "tasks_total": 1,
+        "search_tasks": 1,
+        "revalidation_tasks": 0,
+        "hotel_search_tasks": 0,
+        "hotel_revalidation_tasks": 0,
+        "attempts_total": 1,
+        "recipe_versions": [
+          "1.1.0"
+        ],
+        "recipe_reviewed_dates": [
+          "2026-08-25"
+        ],
+        "openclaw_attempts": 0,
+        "lab_ingest_attempts": 1,
+        "auto_validated_tasks": 1,
+        "usable_result_tasks": 1,
+        "manual_terminal_tasks": 0,
+        "no_result_tasks": 0,
+        "needs_review_tasks": 0,
+        "validation_error_attempts": 0,
+        "manual_or_blocked_attempts": 0,
+        "contract_validation_rate": 1.0,
+        "usable_success_rate": 1.0,
+        "success_rate": 1.0,
+        "median_duration_ms": 16,
+        "outcomes": {
+          "completed": 1
+        },
+        "result_statuses": {
+          "ok": 1
+        }
+      }
+    ],
+    "notes": [
+      "contract_validation_rate 表示輸出通過 typed schema、指定供應商 official domain 與行程/住宿條件驗證。",
+      "usable_success_rate 只計算真的取得可比較 option 的 ok/found；安全的 manual handoff 不算自動成功。",
+      "lab_ingest 只驗證離線資料；正式 POC 判斷應優先看 openclaw_attempts。"
+    ]
+  }
+}
+{
+  "database": "/tmp/mom-travel-v07-hqz_jfdg/demo.db",
+  "trip_case_id": "trip_a936783fd310",
+  "hotel_search_run_id": "hsearch_58230d64d623",
+  "ranked_options": [
+    {
+      "rate": "Flexible Rate",
+      "amount": 52000.0,
+      "refundable": true,
+      "breakfast": true,
+      "score": 110.25
+    },
+    {
+      "rate": "Advance Purchase",
+      "amount": 48000.0,
+      "refundable": false,
+      "breakfast": false,
+      "score": 72.0
+    }
+  ],
+  "selected": "hilton-flex-king",
+  "revalidation": {
+    "task_id": "browser_01a5169dbe67",
+    "search_task_id": "browser_46a5d19c1db2",
+    "option_id": "hilton-flex-king",
+    "status": "changed",
+    "hotel_name": "Hilton Tokyo",
+    "source_url": "https://www.hilton.com/en/hotels/tyohitw-hilton-tokyo/",
+    "observed_at": "2026-08-25T16:52:59+00:00",
+    "match_confidence": "exact",
+    "currency": "TWD",
+    "original_amount": 52000.0,
+    "current_amount": 53200.0,
+    "delta_amount": 1200.0,
+    "delta_percent": 2.308,
+    "room_changed": false,
+    "rate_changed": false,
+    "cancellation_changed": false,
+    "meal_changed": false,
+    "fees_changed": false,
+    "requires_human_acceptance": true,
+    "blockers": [],
+    "warnings": [
+      "DEMO: total increased by TWD 1,200",
+      "DEMO DATA — not live availability",
+      "價格變動：TWD 52000 → TWD 53200"
+    ]
+  },
+  "preflight_before_acceptance": {
+    "ready": false,
+    "blockers": [
+      "價格或住宿條件有變動，尚未明確接受"
+    ]
+  },
+  "preflight_after_acceptance": {
+    "ready": true,
+    "status": "ready_for_human_checkout",
+    "payment_handled_by_agent": false
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "recipe_version": "1.0.0",
+  "last_reviewed": "2026-08-25",
+  "airline_code": "BR",
+  "airline": "EVA Air / 長榮航空",
+  "risk_level": "high",
+  "official_domains": ["evaair.com", "booking.evaair.com", "flights.evaair.com"],
+  "supported_schemas": ["flight-search-v1", "flight-revalidation-v1"],
+  "browser_profile_policy": "isolated_default",
+  "strategy": "official-site semantic navigation",
+  "start_url": "https://booking.evaair.com/flyeva/eva/b2c/booking-online.aspx?lang=zh-tw",
+  "expected_inputs": ["trip type", "origin", "destination", "departure date", "return date", "passengers", "cabin"],
+  "workflow": [
+    "Open EVA Air official online booking page",
+    "Set trip type, airports, dates, party and cabin",
+    "Search fares and collect up to five useful exact-date options",
+    "Capture total, currency, fare family, baggage and change/refund summaries when visible",
+    "Stop before traveler identity, card entry, OTP/3DS or final purchase"
+  ],
+  "special_rules": [
+    "Official booking page states maximum 9 occupied tickets per transaction, excluding infant tickets.",
+    "At least one traveler must be age 16 or older; infant/child accompaniment rules shown by official UI must be obeyed.",
+    "Do not use promotional fare cards as final quotes; official page itself advises checking the total after flight selection."
+  ],
+  "known_blockers": ["CAPTCHA can appear in some booking flows", "Member/credit-card promotion flows alter the form", "Special child/infant cases require human handling"],
+  "revalidate": ["Re-search the exact itinerary and fare family immediately before human checkout."],
+  "safety": ["Official domains only.", "Stop before payment/card/CVV/ticket issuance/cancellation/refund.", "Stop at login, OTP, 3DS, CAPTCHA, anti-bot or identity verification.", "Return typed JSON only."],
+  "failure_policy": ["Retry one semantic interaction after an ordinary stale ref.", "Never guess fare, airport, date or restrictions.", "Return manual_required after repeated/safety blocker."],
+  "regression_cases": [
+    {"id":"br-basic-roundtrip","task":"flight_search","origin":"TPE","destination":"NRT","trip_type":"round_trip","adults":2,"children":0,"infants":0,"cabin":"economy","expected":"typed_result_or_explicit_manual_blocker"},
+    {"id":"br-party-limit","task":"planning","origin":"TPE","destination":"NRT","trip_type":"round_trip","adults":9,"children":1,"infants":0,"cabin":"economy","expected":"manual_handoff_before_browser"}
+  ]
+}

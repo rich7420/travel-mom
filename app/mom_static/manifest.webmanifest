@@ -1,0 +1,9 @@
+{
+  "name": "Mom Travel Desk - 旅行社小幫手",
+  "short_name": "旅行社小幫手",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fffaf2",
+  "theme_color": "#fffaf2",
+  "lang": "zh-Hant"
+}

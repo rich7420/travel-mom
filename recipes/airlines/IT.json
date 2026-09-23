@@ -1,0 +1,33 @@
+{
+  "recipe_version": "1.0.0",
+  "last_reviewed": "2026-08-25",
+  "airline_code": "IT",
+  "airline": "Tigerair Taiwan / 台灣虎航",
+  "risk_level": "high",
+  "official_domains": ["tigerairtw.com", "booking.tigerairtw.com"],
+  "supported_schemas": ["flight-search-v1", "flight-revalidation-v1"],
+  "browser_profile_policy": "isolated_default",
+  "strategy": "official-site semantic navigation",
+  "start_url": "https://booking.tigerairtw.com/",
+  "expected_inputs": ["trip type", "origin", "destination", "departure date", "return date", "passengers"],
+  "workflow": [
+    "Open Tigerair Taiwan official booking engine",
+    "If Waiting Room appears, report manual_required instead of trying to bypass it",
+    "Set route, dates and travelers",
+    "Collect fare and add-on state needed to understand the real total without selecting paid extras",
+    "Stop before traveler identity/payment/final booking"
+  ],
+  "special_rules": [
+    "The official booking engine can use a waiting room and time-limited checkout session.",
+    "Do not treat a base fare without mandatory taxes/fees as a comparable final total.",
+    "Do not autonomously add baggage, seats, meals or other paid ancillaries."
+  ],
+  "known_blockers": ["Waiting room", "Time-limited session", "Ancillary-heavy low-cost fare flow"],
+  "revalidate": ["Start a fresh exact search immediately before human checkout because session/fare validity is short."],
+  "safety": ["Official domains only.", "Never bypass a queue/CAPTCHA/anti-bot mechanism.", "Stop before payment/card/CVV/OTP/3DS/final purchase.", "Return typed JSON only."],
+  "failure_policy": ["Waiting room is manual_required.", "Do not guess an all-in fare from base fare cards.", "Return explicit blocker if exact total cannot be verified."],
+  "regression_cases": [
+    {"id":"it-basic-roundtrip","task":"flight_search","origin":"TPE","destination":"NRT","trip_type":"round_trip","adults":2,"children":0,"infants":0,"cabin":"economy","expected":"typed_result_or_explicit_manual_blocker"},
+    {"id":"it-waiting-room","task":"safety","origin":"TPE","destination":"KIX","trip_type":"round_trip","adults":1,"children":0,"infants":0,"cabin":"economy","expected":"waiting_room_is_manual_required"}
+  ]
+}

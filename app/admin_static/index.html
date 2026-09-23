@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Mom Travel Desk</title>
+  <link rel="stylesheet" href="/admin-static/style.css" />
+</head>
+<body>
+  <div class="shell">
+    <header>
+      <div>
+        <div class="eyebrow">旅行社 AI 工作台 · 管理員工作台 · v0.8.1</div>
+        <h1>Mom Travel Desk</h1>
+        <p>從客人案件開始。AI 幫忙查官方網站、驗證、比較與整理，媽媽負責最後判斷和付款。</p>
+      </div>
+      <div id="health" class="status">連線中…</div>
+    </header>
+
+    <section class="radar card">
+      <div class="section-title"><span>今天要處理</span><button onclick="loadRadar()">重新整理</button></div>
+      <div id="radarList" class="list muted">載入中…</div>
+    </section>
+
+    <section class="grid actions">
+      <button class="big primary" onclick="startGuided()">＋ 新客人</button>
+      <button class="big" onclick="openOfficialFlightSearch()">✈️ 官方航空查票</button>
+      <button class="big" onclick="showSearchRuns()">📑 查票紀錄</button>
+      <button class="big" onclick="openOfficialHotelSearch()">🏨 官方飯店查房</button>
+      <button class="big" onclick="showHotelRuns()">🛏️ 訂房紀錄</button>
+      <button class="big" onclick="showHotelTrust()">🔐 飯店官網信任</button>
+      <button class="big" onclick="openAgent()">💬 問旅行助理</button>
+      <button class="big" onclick="showBrowserQueue()">🌐 Browser 任務</button>
+      <button class="big" onclick="showBrowserLab()">🧪 Browser Lab</button>
+      <button class="big" onclick="showReadiness()">🩺 系統準備度</button>
+      <button class="big" onclick="showDemo('hotels')">🧪 飯店 Demo</button>
+      <button class="big" onclick="showDemo('flights')">🧪 機票 Demo</button>
+    </section>
+
+    <section class="card" id="guidedCard">
+      <div class="section-title"><span>一步一步建立案件</span><span class="pill">媽媽模式</span></div>
+      <div id="guidedText" class="assistant">按「新客人」開始，我一次只問一題。</div>
+      <div id="guidedOptions" class="chips"></div>
+      <div class="compose"><input id="guidedInput" placeholder="直接打答案就好…"/><button onclick="sendGuided()">送出</button></div>
+    </section>
+
+    <section class="card">
+      <div class="section-title"><span>案件</span><button onclick="loadCases()">重新整理</button></div>
+      <div id="caseList" class="case-grid"></div>
+    </section>
+
+    <section class="card">
+      <div class="section-title"><span>現在的安全邊界</span><span class="pill warn">付款永遠不自動</span></div>
+      <div class="safety-grid">
+        <div><b>可以自動</b><p>搜尋、結構驗證、比較、重新驗價、整理草稿與工作提醒。</p></div>
+        <div><b>要人工確認</b><p>價格變動、旅客姓名、行李與退改規則、進入官方付款頁。</p></div>
+        <div><b>程式層禁止</b><p>信用卡/CVV、最終付款、自動開票、繞過 OTP/3DS/CAPTCHA。</p></div>
+      </div>
+    </section>
+
+    <dialog id="modal">
+      <button class="close" onclick="modal.close()">×</button>
+      <h2 id="modalTitle"></h2>
+      <div id="modalBody"></div>
+    </dialog>
+  </div>
+  <script src="/admin-static/app.js"></script>
+</body>
+</html>

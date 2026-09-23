@@ -1,0 +1,21 @@
+[project]
+name = "mom-travel-desk"
+version = "0.8.1"
+description = "POC: guided travel-agency desk with OpenClaw official-site browser workflows"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.128",
+  "uvicorn[standard]>=0.34",
+  "httpx>=0.28",
+  "pydantic>=2.10",
+  "cryptography>=44",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.25"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"
+filterwarnings = ["error::ResourceWarning"]

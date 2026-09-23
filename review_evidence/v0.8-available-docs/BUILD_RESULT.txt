@@ -1,0 +1,26 @@
+{
+  "version": "0.8.0",
+  "passed": false,
+  "checks": [
+    {
+      "name": "Python compile",
+      "passed": true,
+      "output_tail": ""
+    },
+    {
+      "name": "v0.8 pytest",
+      "passed": false,
+      "output_tail": ",\n            \"created_at\": utc_now(),\n        }\n        with connect() as conn:\n>           conn.execute(\n                \"INSERT INTO ux_confirmations (id, case_id, source_type, parsed_data, warnings, created_at) VALUES (?,?,?,?,?,?)\",\n                (record[\"id\"], case_id, source_type, _json(parsed_data), _json(warnings), record[\"created_at\"]),\n            )\nE           sqlite3.OperationalError: no such table: ux_confirmations\n\napp/ux_v08/storage.py:465: OperationalError\n=========================== short test summary info ============================\nFAILED tests_v08/test_ux_v08.py::test_guided_back_save_resume_and_completion - sqlite3.OperationalError: no such table: ux_guided_sessions\nFAILED tests_v08/test_ux_v08.py::test_search_job_is_resumable_and_plain_language - sqlite3.OperationalError: no such table: ux_search_jobs\nFAILED tests_v08/test_ux_v08.py::test_confirmation_parser_requires_review - sqlite3.OperationalError: no such table: ux_confirmations\n3 failed, 9 passed in 1.80s"
+    },
+    {
+      "name": "Frontend JavaScript syntax",
+      "passed": true,
+      "output_tail": ""
+    },
+    {
+      "name": "UX dialogs",
+      "passed": true,
+      "output_tail": "guided and resumable-search dialogs present"
+    }
+  ]
+}

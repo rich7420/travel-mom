@@ -1,0 +1,50 @@
+{
+  "id": "official-hotel-search-v1",
+  "kind": "hotel_search",
+  "recipe_version": "1.0.0",
+  "last_reviewed": "2026-08-25",
+  "trust_policy": {
+    "built_in_networks": ["MARRIOTT", "HILTON", "HYATT", "IHG", "ACCOR", "SHANGRILA"],
+    "independent_property": "requires_human_approved_HotelSiteGrant",
+    "ota_as_official_site": "deny"
+  },
+  "safe_actions": ["open", "click", "type_search_fields", "select", "snapshot", "read"],
+  "required_search_inputs": ["hotel_name", "checkin_date", "checkout_date", "rooms", "adults", "children_ages"],
+  "required_output": [
+    "hotel_name", "source_url", "room_name", "bed_type", "rate_name", "occupancy_summary",
+    "total_amount", "currency", "base_amount", "taxes_and_fees", "mandatory_property_fees",
+    "breakfast_included", "refundable", "cancellation_deadline_local", "payment_timing",
+    "member_rate", "loyalty_required", "observed_at"
+  ],
+  "semantic_steps": [
+    "stay on the pre-approved official hotel domain",
+    "enter exact dates, rooms, adults and child ages",
+    "read room and rate cards without entering traveler or payment details",
+    "extract whole-stay total and fee breakdown; unknown values stay null",
+    "label member-only rates and membership requirements",
+    "stop before final booking/payment or any identity challenge"
+  ],
+  "forbidden_actions": [
+    "navigate_to_ota", "final_purchase", "payment", "cancel_existing_booking", "enter_card",
+    "bypass_captcha", "bypass_otp", "bypass_3ds", "silently_substitute_room_or_rate"
+  ],
+  "stop_conditions": ["login required", "OTP", "3DS", "CAPTCHA", "anti-bot", "final payment button", "irreversible submit"],
+  "regression_cases": [
+    {
+      "id": "whole-stay-total-not-nightly-only",
+      "expect": "total_amount is whole-stay amount and currency is present"
+    },
+    {
+      "id": "unknown-fee-not-zero",
+      "expect": "unobserved taxes/mandatory fees are null, never invented as 0"
+    },
+    {
+      "id": "member-rate-labelled",
+      "expect": "member_rate/loyalty_required reflect access requirements"
+    },
+    {
+      "id": "ota-redirect-stops",
+      "expect": "redirect to an OTA is rejected or handed to human; never accepted as official result"
+    }
+  ]
+}

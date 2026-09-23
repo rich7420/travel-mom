@@ -1,0 +1,81 @@
+{
+  // Mom Travel Desk calls this Gateway from the backend only.
+  // Never expose the operator bearer token to LINE, Telegram, or Mini App JavaScript.
+  gateway: {
+    auth: { mode: "token", token: "${OPENCLAW_GATEWAY_TOKEN}" },
+    http: {
+      endpoints: {
+        chatCompletions: { enabled: true },
+      },
+    },
+  },
+
+  plugins: {
+    entries: {
+      browser: { enabled: true },
+    },
+  },
+
+  browser: {
+    enabled: true,
+    // Isolated managed profile by default. A signed-in user profile is an explicit human choice.
+    defaultProfile: "openclaw",
+    // Official OpenClaw docs warn that page-context JavaScript evaluation enlarges the
+    // prompt-injection surface. The airline POC does not need it.
+    evaluateEnabled: false,
+  },
+
+  agents: {
+    entries: {
+      // Conversational / planning agent. It cannot directly control the browser.
+      "mom-travel": {
+        workspace: "~/.openclaw/workspaces/mom-travel",
+        skills: [
+          "mom-mode",
+          "guided-intake",
+          "skill-feedback-capture",
+          "search-run-coordinator",
+          "flight-search",
+          "flight-shortlist",
+          "hotel-search",
+          "hotel-site-attestation",
+          "itinerary-builder",
+          "customer-reply",
+          "quotation",
+          "visa-check",
+          "pretrip-briefing",
+          "daily-radar",
+        ],
+        tools: {
+          profile: "minimal",
+          alsoAllow: ["web_search", "web_fetch"],
+          deny: ["browser", "exec", "process", "write", "edit", "apply_patch", "gateway", "cron"],
+        },
+      },
+
+      // Skill evolution is proposal-only in v0.8.1. `skill-evolution-proposal` is intentionally
+      // not loaded into the Mom conversational agent; administrators run it only in an offline
+      // review/evaluation workflow after redacted evidence has accumulated.
+
+      // Dedicated least-privilege browser worker. Travel Desk selects this model only for
+      // typed BrowserTasks; it cannot run shell/file/network-search tools or rewrite skills.
+      "mom-travel-browser": {
+        workspace: "~/.openclaw/workspaces/mom-travel",
+        skills: [
+          "browser-automation",
+          "airline-official-search",
+          "hotel-official-search",
+          "price-revalidation",
+          "hotel-price-revalidation",
+          "booking-preflight",
+          "hotel-booking-preflight",
+        ],
+        tools: {
+          profile: "minimal",
+          alsoAllow: ["browser"],
+          deny: ["web_search", "web_fetch", "exec", "process", "write", "edit", "apply_patch", "gateway", "cron"],
+        },
+      },
+    },
+  },
+}

@@ -1,0 +1,8 @@
+{
+  "id": "official-airline-search-v1",
+  "kind": "flight_search",
+  "safe_actions": ["open", "click", "type_search_fields", "select", "snapshot", "read", "download_non_sensitive_pdf"],
+  "forbidden_actions": ["final_purchase", "ticket_issue", "payment", "cancel", "refund", "enter_card", "bypass_captcha", "bypass_otp"],
+  "required_output": ["airline", "flight_number", "departure", "arrival", "fare_family", "baggage", "change_rule", "refund_rule", "currency", "total_price", "observed_at", "source_url"],
+  "stop_conditions": ["OTP", "3DS", "CAPTCHA", "final payment button", "irreversible submit"]
+}
