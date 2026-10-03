@@ -38,3 +38,11 @@ Context: the in-web guide increment in [context](context.md). Result: requiremen
 - Print hides navigation and controls, prints all chapters, and produced a local A4 PDF. No JavaScript is required to read or use chapter links. Guide font controls use a local preference only.
 
 Evidence: ignored `data/guide-review/browser-report.json`, `verify_guide.py`, desktop/mobile screenshots, and `guide-print.pdf`. Existing workflow reports remain under `data/`. Manual screen-reader conformance, actual public Access deployment and Mom usability remain follow-up; no claim that most agency operations are complete.
+
+## Agency operations QA (2026-10-03)
+
+The latest increment retains the paper/navy/terracotta design and adds compact case tiles, a single next action, all-case deadlines and one reusable form shell. Desktop/tablet/mobile screenshots at 1360/768/390px extra-large text show no horizontal overflow and visible buttons at least 44px. The 390px ledger was visually checked; responsive amount rows separate labels and values. Six 14px navigation labels fit the mobile bar.
+
+Twenty browser checks pass for the manual lifecycle, missing/stale output guards, authenticated public document copy/print, exact decimal balances, origin-preserving task back navigation, expired-login resume, same-intent retry after a committed lost response, success/refresh-failure duplicate prevention, stale async and poll ownership, isolated task errors and dirty-Escape preservation. Sixteen existing UI checks, eleven guide checks and nine legacy workflow checks also pass. The guide now has sixteen chapters; contextual links open a separate tab and preserve unsaved input.
+
+Both external read-only reviewers approved: Cursor for all frontend work; Claude for High backend/schema/security/concurrency work. All material findings fixed. Minor primary-action/history-label suggestions fixed. Backend suites pass 162 tests on Python 3.12 and 3.11.14, sequentially because their fixture shares a fixed temporary DB. See [full verification](../docs/AGENCY_OPERATIONS_VERIFICATION.md) for evidence and accepted minor constraints. No live transactions, public Access deployment, manual screen-reader certification or Mom usability claim is made.

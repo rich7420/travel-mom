@@ -2,7 +2,7 @@
 
 Reviewed: 2026-10-03. Application version: 0.8.1. Audience: engineers maintaining this repository.
 
-Mom Travel Desk is a case-based internal travel-agency prototype. Its strongest implemented foundation is a shared case database with guided intake, typed official-site search workflows, deterministic comparison, and checks before human checkout. The web interface now supports intake, editable case requirements, manual supplier offers, comparison/selection, and editable customer drafts without OpenClaw. Official automation remains optional, and booking preflight stays in the admin/API workflow. This document describes the current implementation; proposed work and review findings are in [the current review](REVIEW_AND_DIRECTION_ZH_TW.md).
+Mom Travel Desk is a case-based internal travel-agency prototype. Its strongest implemented foundation is a shared case database with guided intake, typed official-site search workflows, deterministic comparison, and checks before human checkout. The web interface now supports intake, editable case requirements, manual supplier offers, comparison/selection, editable customer drafts, immutable quotes, business deadlines, verified booking records, a manual payment ledger, and pretrip summaries without OpenClaw. Official automation remains optional, and booking preflight stays in the admin/API workflow. This document describes the current implementation; proposed work and review findings are in [the current review](REVIEW_AND_DIRECTION_ZH_TW.md).
 
 ## Runtime and implementation map
 
@@ -59,7 +59,7 @@ The external agents and live supplier sites were not connected during this revie
 
 ## Data ownership and persistence
 
-Mom Mode and the admin interface share the same database. A `TripCase` is the root record for a customer trip, but it is not yet a separate customer CRM, passenger manifest, quote, or booking ledger.
+Mom Mode and the admin interface share the same database. A `TripCase` is the root record for a customer trip, but it is not yet a separate customer CRM, passenger manifest, full passenger manifest or separate CRM; versioned quotes and manual booking/payment records now belong to each case.
 
 | Tables | Stored state and relationships |
 | --- | --- |
@@ -78,7 +78,7 @@ Mom Mode and the admin interface share the same database. A `TripCase` is the ro
 
 The logical relationship is case → search run → browser tasks → attempts/results; a selected option belongs to a task, and a revalidation task references its parent task/option. Most relationships are stored as IDs or JSON rather than declared SQL foreign keys. `PRAGMA foreign_keys=ON` alone does not enforce those logical relationships.
 
-SQLite uses WAL, a five-second busy timeout, and a connection wrapper that closes connections after commit/rollback. Startup creates tables, adds selected missing columns, and records migration versions 701, 801 and 802. Migration 802 adds infant/child-age fields and the manual option/selection tables, plus `browser_tasks.result_attempt_id` without dropping existing cases. This is an idempotent POC upgrade mechanism, not a general migration framework. Back up an existing database before first startup; consult [the migration guide](MIGRATION_V071_TO_V081.md).
+SQLite uses WAL, a five-second busy timeout, and a connection wrapper that closes connections after commit/rollback. Startup creates tables, adds selected missing columns, and records migration versions 701, 801, 802 and 803. Migration 802 adds infant/child-age fields and the manual option/selection tables, plus `browser_tasks.result_attempt_id` without dropping existing cases. This is an idempotent POC upgrade mechanism, not a general migration framework. Back up an existing database before first startup; consult [the migration guide](MIGRATION_V071_TO_V081.md).
 
 ## Request and workflow behavior
 
@@ -86,7 +86,7 @@ SQLite uses WAL, a five-second busy timeout, and a connection wrapper that close
 
 Intake asks for customer name, destination, departure, return, travelers, and total budget. Answers persist after each step. Dates use ISO format; travelers support shorthand such as `2大1小1嬰兒`. Starting again resumes unfinished intake but resets a completed session for the next customer. Completed shortcuts navigate to real workflows. Typed patches validate the merged record before writes under `BEGIN IMMEDIATE`, including nullability, date order and party composition. Completing intake creates a case and sets it to `quoting`. The session ID persists in browser local storage, whereas the answers live in SQLite.
 
-Next Best Action is deterministic Python logic. It checks case status, missing information, search runs, and selected options. The intent helper uses keyword matching rather than a model. Today priority scoring considers all cases before choosing priority cards; closed cases are excluded. Only displayed cards calculate detailed next actions. It still lacks explicit business deadlines.
+Next Best Action is deterministic Python logic. It checks case status, missing information, search runs, and selected options. The intent helper uses keyword matching rather than a model. Today priority scoring considers all cases before choosing priority cards; closed cases are excluded. Only displayed cards calculate detailed next actions. Case-priority recommendations remain separate from the complete business-deadline list, which is loaded by the operations UI.
 
 ### Official-site search and validation
 
@@ -204,7 +204,7 @@ Visible versions are removed from Mom and admin UIs and retained in HTML comment
 Optional `AUTH_MODE=cloudflare` validates Access RS256 JWTs in `app/cloudflare_access.py` using a fixed issuer/audience and bounded asynchronous JWKS cache; `app/security.py` owns exact exemptions, operator route allowlists, admin defaults and origin checks. All paths are protected except minimal `GET /livez` and exact signed-channel webhook POSTs. `/api/auth/session` supplies mode and safe identity metadata for web login/logout UI. Token mode remains a local/private compatibility path. Production disables interactive API docs and OpenAPI. Docker healthcheck uses `/livez`; detailed `/health` remains authenticated in Access mode. Accounts share this agency's cases; no multi-tenant isolation is claimed. See [deployment verification and limits](CLOUDFLARE_ACCESS_DEPLOYMENT.md).
 
 
-Both frontends discover `/api/auth/session` before reading legacy credentials. Access mode clears both legacy sessionStorage keys and uses browser-managed Access cookies; no JWT is stored by UI code. Expired sessions or manual opaque redirects show a named, non-dismissible login dialog. A dedicated reauthentication error prevents error handlers from replacing case lists, drafts or form contents; only the explicit login button reloads. Ordinary failures still render their normal error states. Admin inline async handlers suppress only already-handled reauthentication rejections.
+Both frontends discover `/api/auth/session` before reading legacy credentials. Access mode clears both legacy sessionStorage keys and uses browser-managed Access cookies; no JWT is stored by UI code. Expired sessions or manual opaque redirects show a named, non-dismissible login dialog. A dedicated reauthentication error prevents error handlers from replacing case lists, drafts or form contents; Mom opens login in another tab and resumes the original form without reload; the admin login button still reloads. Ordinary failures still render their normal error states. Admin inline async handlers suppress only already-handled reauthentication rejections.
 
 UI validation: 16 headless Chrome checks passed, including 390px large/extra-large fonts, 768/1024px extra-large fonts, desktop layout, version hiding, empty/error states, role visibility, credential clearing, expired-session data preservation, opaque redirects and Escape-key persistence. The full three-customer/manual-offer/selection/draft-copy/reload regression also passed. See [design QA](../design/qa.md). Real Access deployment, live supplier sessions and a manual screen-reader audit remain unverified.
 
@@ -217,4 +217,34 @@ Mom Mode links to the guide from the topbar, settings and the shared sheet heade
 
 Cloudflare mode protects guide HTML/CSS/JS with the existing operator rules and strict CSP. Token/local mode exposes static guide assets to anyone able to reach the server, like the existing app shell; the guide contains instructions, not customer records or credentials. No auth exceptions or backend routes were added.
 
-The [coverage check](WORKFLOW_COVERAGE_ZH_TW.md) distinguishes usable Mom workflows, optional but unverified automation, admin/API-only checks, and absent business records. Intake/search/manual-offer/selection/customer-draft flows are supported. Booking status labels, policy enums and preflight contracts do not establish completed reservations, payments, issued tickets or delivered pretrip documents.
+The [coverage check](WORKFLOW_COVERAGE_ZH_TW.md) distinguishes usable Mom workflows, optional but unverified automation, admin/API-only checks, and remaining specialist-product gaps. Intake through manual booking/payment records and pretrip handoff are supported. Booking status labels, policy enums and preflight contracts do not establish completed reservations, payments, issued tickets or delivered pretrip documents.
+
+## Manual agency lifecycle (schema 803)
+
+`operations_models.py` validates commands, Decimal money, aware timestamps, explicit human attestation and HTTPS customer links. `operations_repository.py` stores case-scoped JSON records in `agency_quotes`, `agency_work_items`, `agency_bookings`, `agency_documents`, `agency_ledger`, and `agency_pretrip`. `agency_commands` retains retry results. Migration 803 is additive and idempotent, preserving schema 802 cases, selections and options. Back up the SQLite file with its backup API before upgrading; the upgrade has no down-migration.
+
+Every write uses one `BEGIN IMMEDIATE` transaction for validation, the mutation, the saved command response and its audit record. Audit includes actor, record ID, reason and before/after case status. The UUID is case-scoped; its hash includes action, verified actor and normalized Pydantic payload. Identical retries return the original response, different content returns 409, and failed writes roll back the command key. Lock contention becomes 503 so the client can retry the same intent. Financial values remain exact two-place Decimal strings; currencies never implicitly convert, missing costs/unmatched quote currencies remain unknown.
+
+Quote creation performs expensive option/provenance checks outside the write lock, then compares before/after/current trip and selection/source guards inside the transaction. Versions and monetary/customer content are immutable; only decision state and evidence events change. One accepted quote per case is enforced by a partial unique index. An explicit accepted-quote amendment requires reason/attestation, replaces other active versions, preserves case-level payment history and marks old booking bindings for reverification. Display-name spelling changes do not invalidate travel constraints. Generic case PATCH cannot newly set booking/confirmed; those states follow quote acceptance and verified kind coverage.
+
+Booking references are case-scoped and normalized for case/whitespace when checking duplicates. Same references in other cases show an internal warning, allowing legitimate group bookings. Rebinding a valid confirmation to a newly accepted quote requires a new supplier check, reason and customer-facing details; it retains prior bindings/details/evidence in history. Voiding a mistyped record is local bookkeeping, never a supplier cancellation. Document revisions can correct booking bindings or required flags with reason/attestation, preserving history. Required electronic tickets and hotel vouchers, current booking coverage and document readiness gate delivery.
+
+Pretrip versions snapshot the trip, accepted quote, all booking records and document revisions. Any change makes an old pack stale; the API rechecks export and delivery in a consistent read/write transaction respectively. Stale exports return 409; stored source and delivery history remain available internally. Draft packs show blockers and cannot be exported or marked delivered. Public HTML exports whitelist customer fields and escape all strings; they exclude supplier windows, internal evidence, costs and ledger records. No URL is fetched, no original attachments are stored/merged, and no message or financial/supplier transaction is executed.
+
+The web extension `mom_static/operations.js` registers actions/forms/views with `MomApp` rather than exposing mutable app state. Dialog request generations prevent old responses from replacing newer screens. Each form retains its UUID while an outcome is uncertain and rotates on changed content or definitive 4xx. Reauthentication uses a separate login tab and resumes the original form. For local token-mode print, the browser opens a blank popup, detaches its opener, fetches customer HTML through the authenticated helper and resolves only app asset URLs; secrets never appear in document URLs or DOM. Public copy and print share the server's same export boundary. No browser persistence is added for private operational form contents.
+
+API groups (all under the existing origin, role and JWT middleware):
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /api/mom/work-items` | All cases/statuses with business timezone, no four-case cap; UI filters open/done/cancelled |
+| `GET /api/mom/cases/{case_id}/operations` | Case-scoped records, currency balances, blockers/stale flags |
+| `POST .../quotes`, `POST .../quotes/{id}/{sent,accept,reject}` | Immutable quote and explicit manual decision evidence |
+| `POST .../work-items`, `PATCH .../work-items/{id}` | Responsibility, due time, source and optimistic revision/reason |
+| `POST .../bookings`, `POST .../bookings/{id}/{void,rebind}` | Supplier-verified confirmations and corrections |
+| `POST .../ledger`, `POST .../ledger/{id}/void` | Actual manual receipts/payments/refunds and corrections |
+| `POST .../documents`, `PATCH .../documents/{id}` | Checklist, public text/link, requirement/binding repair |
+| `POST .../pretrip`, `POST .../pretrip/{id}/deliver` | Versioned summary and explicit actual handoff evidence |
+| `GET .../{quotes,pretrip}/{id}/document` | Authenticated customer-safe HTML print/copy |
+
+Operator permissions use exact path/method allowlists; unknown suffixes/actions default to admin protection. The current Access model is a shared agency workspace, not per-customer or tenant isolation. Real Cloudflare tunnel, IdP/MFA, live supplier transactions and Mom's workload coverage still require separate deployment/user validation.

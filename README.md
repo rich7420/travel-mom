@@ -17,7 +17,7 @@ The review preview runs at <http://127.0.0.1:8001/> with a separate local databa
 
 ## Current web workflow increment
 
-OpenClaw is optional. The shared web backend now supports consecutive customer intake, validated case edits with infant/child-age preservation, saved search requirements, manual supplier offers, comparison and persistent selection, and editable/copyable deterministic customer drafts. Expired, demo, changed-case or replaced offers cannot supply active quote amounts. Internal manual supplier/source metadata stays out of drafts. See the current handoff documents for operating limits; versioned quotes, deadlines and booking/pretrip delivery are next.
+OpenClaw is optional. The shared web backend now supports consecutive customer intake, validated case edits with infant/child-age preservation, saved search requirements, manual supplier offers, comparison and persistent selection, and editable/copyable deterministic customer drafts. Expired, demo, changed-case or replaced offers cannot supply active quote amounts. Internal manual supplier/source metadata stays out of drafts. See the current handoff documents for operating limits; schema 803 adds immutable quote versions, deadline/owner tracking, verified booking confirmations, manual currency ledgers, document readiness and pretrip summary handoff. Actual supplier transactions, money transfers, customer messages and original attachments remain manual. See [agency verification](docs/AGENCY_OPERATIONS_VERIFICATION.md).
 
 ## Interface and tunnel login preparation
 
