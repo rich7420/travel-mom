@@ -4,12 +4,15 @@ import json
 
 from app.db import audit, connect
 from app.models import new_id, now_iso
+from app.repositories import require_open_case
 
 
 class CaseWorkflowRepo:
     def add_option(self, case_id: str, payload: dict) -> dict:
         option = {**payload, "id": new_id("option"), "case_id": case_id, "created_at": now_iso()}
         with connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            require_open_case(db, case_id)
             db.execute(
                 "INSERT INTO case_options(id,case_id,kind,payload_json,created_at) VALUES(?,?,?,?,?)",
                 (option["id"], case_id, option["kind"], json.dumps(option, ensure_ascii=False), option["created_at"]),
@@ -24,6 +27,8 @@ class CaseWorkflowRepo:
     def select(self, case_id: str, option: dict) -> dict:
         snapshot = {**option, "selected_at": now_iso()}
         with connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            require_open_case(db, case_id)
             db.execute(
                 """INSERT INTO case_option_selections(case_id,kind,option_id,snapshot_json,selected_at)
                    VALUES(?,?,?,?,?) ON CONFLICT(case_id,kind) DO UPDATE SET
@@ -39,6 +44,8 @@ class CaseWorkflowRepo:
 
     def clear_selection(self, case_id: str, kind: str) -> None:
         with connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            require_open_case(db, case_id)
             db.execute("DELETE FROM case_option_selections WHERE case_id=? AND kind=?", (case_id, kind))
         audit(case_id, "operator", "case.option_selection_cleared", {"kind": kind}, now_iso())
 

@@ -90,6 +90,8 @@ def option_state(option: dict, case: TripCase) -> dict:
 
 def add_manual_option(case_id: str, data: ManualOptionCreate) -> dict:
     case = require_case(case_id)
+    if case.status.value == "closed":
+        raise ValueError("已結案案件僅供查看，請先記錄重新開案")
     if not case.destination or not case.depart_date:
         raise ValueError("請先補上案件目的地與出發日期")
     if data.kind == "hotel" and not case.return_date:
@@ -182,6 +184,8 @@ def case_workflow(case_id: str) -> dict:
 
 def select_case_option(case_id: str, option_id: str) -> dict:
     workflow = case_workflow(case_id)
+    if workflow["case"]["status"] == "closed":
+        raise ValueError("已結案案件僅供查看，請先記錄重新開案")
     option = next((item for item in workflow["options"] if item["id"] == option_id), None)
     if option is None:
         raise KeyError(option_id)

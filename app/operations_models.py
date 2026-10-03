@@ -6,7 +6,7 @@ from typing import Annotated, Literal
 from uuid import UUID
 from urllib.parse import urlsplit
 
-from pydantic import AfterValidator, AwareDatetime, BaseModel, ConfigDict, Field, field_validator
+from pydantic import AfterValidator, AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 def utc(value: datetime) -> datetime:
@@ -151,3 +151,34 @@ class PackCreate(Command):
 
 class PackDelivery(Evidence):
     channel: Annotated[str, Field(min_length=1, max_length=100)]
+
+
+class CaseLifecycle(Evidence):
+    expected_state: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    reason: Text
+
+
+class CaseClose(CaseLifecycle):
+    outcome: Literal["completed", "withdrawn"]
+    supplier_settlement_checked: Literal[True] | None = None
+    withdraw_adoption_checked: Literal[True] | None = None
+
+    @model_validator(mode="after")
+    def require_settlement_check(self):
+        if self.outcome == "completed" and self.supplier_settlement_checked is not True:
+            raise ValueError("完成業務結案前，請確認供應商款項與後續服務均已核對")
+        if self.outcome == "completed" and self.withdraw_adoption_checked is not None:
+            raise ValueError("完成結案不可撤回報價採用")
+        if self.outcome == "withdrawn" and self.supplier_settlement_checked is not None:
+            raise ValueError("未成交結案不可填完成結算標示")
+        return self
+
+
+class CaseReopen(CaseLifecycle):
+    pass
+
+
+class SearchAbandon(Evidence):
+    reason: Text
+    expected_updated_at: Annotated[str, Field(min_length=1, max_length=100)]
+    worker_stopped_checked: Literal[True]

@@ -29,6 +29,7 @@ CHAPTER_IDS = {
     "訂購確認與錯誤修正": "confirmations",
     "收付款與分幣別對帳": "payments",
     "文件缺件與行前交付": "pretrip",
+    "結案與重新開案": "lifecycle",
     "常見問題與卡住時怎麼做": "troubleshooting",
     "還需要使用旅行社原本流程的工作": "limits",
 }

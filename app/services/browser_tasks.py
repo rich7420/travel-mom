@@ -11,6 +11,8 @@ from app.airlines import (
     official_airline_for_url,
 )
 from app.config import settings
+from app.db import connect
+from app.repositories import require_open_case
 from app.hotels import normalize_domain
 from app.models import (
     BrowserTask,
@@ -346,6 +348,11 @@ def _find_option(task: BrowserTask, option_id: str) -> tuple[FlightSearchResultV
     raise ValueError("找不到指定 option_id")
 
 
+def require_task_open(task) -> None:
+    with connect() as db:
+        require_open_case(db, task.case_id)
+
+
 class BrowserTaskService:
     def create(self, data: BrowserTaskCreate) -> BrowserTask:
         if not _allowed(data.source_url):
@@ -428,6 +435,7 @@ class BrowserTaskService:
         task = browser_task_repo.get(task_id)
         if not task:
             raise KeyError(task_id)
+        require_task_open(task)
         if task.search_run_id != run_id:
             raise ValueError("task 不屬於指定 hotel search run")
         if task.review_state != "auto_validated":
@@ -439,6 +447,7 @@ class BrowserTaskService:
         search_task = browser_task_repo.get(req.search_task_id)
         if not search_task:
             raise KeyError(req.search_task_id)
+        require_task_open(search_task)
         if search_task.kind != BrowserTaskKind.HOTEL_SEARCH:
             raise ValueError("只能對 hotel_search task 建立重新驗價")
         if search_task.review_state != "auto_validated":
@@ -467,6 +476,7 @@ class BrowserTaskService:
         task = browser_task_repo.get(task_id)
         if not task:
             raise KeyError(task_id)
+        require_task_open(task)
         if task.search_run_id != run_id:
             raise ValueError("task 不屬於指定 search run")
         if task.review_state != "auto_validated":
@@ -478,6 +488,7 @@ class BrowserTaskService:
         search_task = browser_task_repo.get(req.search_task_id)
         if not search_task:
             raise KeyError(req.search_task_id)
+        require_task_open(search_task)
         if search_task.kind != BrowserTaskKind.FLIGHT_SEARCH:
             raise ValueError("只能對 flight_search task 建立重新驗價")
         if search_task.review_state != "auto_validated":
@@ -748,6 +759,7 @@ class BrowserTaskService:
         task = browser_task_repo.get(task_id)
         if not task:
             raise KeyError(task_id)
+        require_task_open(task)
         attempt = browser_attempt_repo.start(task.id, "lab_ingest", settings.openclaw_browser_profile)
         updated, errors, auto_blocker = self._process_result(task, data.raw_text, degraded=False, result_attempt_id=attempt.id)
         browser_attempt_repo.finish(

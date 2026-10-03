@@ -2,8 +2,8 @@
 // Agency records are internal bookkeeping. Every supplier transaction and delivery is manual.
 (() => {
   const A=window.MomApp, E=A.escapeHtml, $=s=>document.querySelector(s);
-  const labels={quotes:'報價版本',tasks:'期限待辦',bookings:'訂購確認',ledger:'收付款',pretrip:'行前交付'};
-  const statusLabels={draft:'草稿／待補齊',sent:'已人工送出',accepted:'客人已採用',rejected:'客人未採用',replaced:'已被新版取代',open:'待處理',done:'已完成',cancelled:'已取消待辦',confirmed:'已核對',recorded:'已記錄',voided:'紀錄已作廢',missing:'待補',ready:'文件已備妥',stale:'資料已變更',prepared:'摘要已備妥',delivered:'已人工交付'};
+  const labels={quotes:'報價版本',tasks:'期限待辦',bookings:'訂購確認',ledger:'收付款',pretrip:'行前交付',lifecycle:'結案與重新開案'};
+  const statusLabels={draft:'草稿／待補齊',sent:'已人工送出',accepted:'客人已採用',rejected:'客人未採用',replaced:'已被新版取代',withdrawn:'已撤回採用／未成交',open:'待處理',done:'已完成',cancelled:'已取消待辦',confirmed:'已核對',recorded:'已記錄',voided:'紀錄已作廢',missing:'待補',ready:'文件已備妥',stale:'資料已變更',prepared:'摘要已備妥',delivered:'已人工交付'};
   const kinds={reply:'回覆客人',quote_followup:'追蹤報價',deposit:'訂金',balance:'尾款',ticketing:'開票期限',cancellation:'取消期限',document:'文件補件',pretrip:'行前交付',change:'改期／異動',refund:'退款',other:'其他'};
   const docKinds={e_ticket:'電子機票',hotel_voucher:'住宿憑證',itinerary:'行程',visa_check:'簽證檢查',insurance:'保險',other:'其他'};
   const moneyKinds={customer_receipt:'客人收款',customer_refund:'退還客人',supplier_payment:'付供應商',supplier_refund:'供應商退款'};
@@ -45,13 +45,27 @@
   function newButton(c,module,label,disabled=false) {return btn(label,'ops-form',c,`data-module="${module}" data-intent="create"`,true,disabled);}
   function editButton(c,module,id,intent,label) {return btn(label,'ops-form',c,`data-module="${module}" data-id="${E(id)}" data-intent="${intent}"`);}
   function publicButton(c,module,id,disabled=false) {return btn('開啟對客文件／列印','ops-document',c,`data-module="${module}" data-id="${E(id)}"`,false,disabled);}
-  function renderTask(t) {
+  function renderTask(t,readonly=false) {
     const timing={overdue:'已逾期',today:'今天到期',upcoming:'之後到期'};
-    return record(t.title,note(`${t.customer_name||''} · ${t.owner} · ${kinds[t.kind]}\n期限：${date(t.due_at)}（台北）${t.status==='open'?` · ${timing[t.timing]}`:''}\n來源：${t.source}\n${t.notes||''}`),btn('打開案件','open-case',t.case_id)+editButton(t.case_id,'tasks',t.id,'edit','更新期限／完成待辦'),t.status);
+    return record(t.title,note(`${t.customer_name||''} · ${t.owner} · ${kinds[t.kind]}\n期限：${date(t.due_at)}（台北）${t.status==='open'?` · ${timing[t.timing]}`:''}\n來源：${t.source}\n${t.notes||''}`),btn('打開案件','open-case',t.case_id)+(readonly||t.case_closed?'':editButton(t.case_id,'tasks',t.id,'edit','更新期限／完成待辦')),t.status);
   }
   function renderModule(c,module,b) {
-    if(module==='quotes')return note('每版報價保留當時需求、所選價格、費用與退改條件。下載或複製後，請自行用 LINE／Email 送出；內部成本與核對依據不會放進對客文件。')+newButton(c,module,'建立報價新版')+(b.quotes.length?b.quotes.slice().reverse().map(q=>record(`第 ${q.version} 版 · ${q.title}`,note(`有效至 ${date(q.valid_until)}（台北）`)+Object.entries(q.totals).map(([k,v])=>`<p><b>${money(k,v)}</b> · 預估毛利：${money(k,q.expected_margin[k])}</p>`).join('')+(q.events.length?`<details><summary>版本處理紀錄</summary>${q.events.map(v=>note(`${{sent:'已人工送出',accept:'客人採用',reject:'客人未採用',replaced:'已被新版取代'}[v.action]||v.action} · ${date(v.at)}\n${v.reference||v.reason||''}`)).join('')}</details>`:''),publicButton(c,module,q.id)+(q.status==='draft'?editButton(c,module,q.id,'sent','記錄已人工送出'):'')+(q.status==='sent'?editButton(c,module,q.id,'accept','記錄客人採用')+editButton(c,module,q.id,'reject','記錄客人未採用'):''),q.status)).join(''):'<div class="empty-state">尚無正式報價。先到「比較與選方案」選取有效方案，再建立第一版。</div>');
-    if(module==='tasks')return note('把訂金、尾款、開票、取消、補件與回覆期限放在這裡。期限以台北時間顯示，系統不會自動通知或替您開票。')+newButton(c,module,'新增案件待辦')+(b.work_items.length?b.work_items.map(renderTask).join(''):'<div class="empty-state">尚無待辦。可先記錄下一次回覆與供應商期限。</div>');
+    if(module==='lifecycle')return renderLifecycle(c,b);
+    const html=renderWorkingModule(c,module,b);
+    if(b.case.status!=='closed')return html;
+    const fragment=new DOMParser().parseFromString(html,'text/html');
+    fragment.querySelectorAll('[data-action="ops-form"]').forEach(node=>node.remove());
+    return notice('案件已結案，以下保留歷史紀錄。需要修改時，請先記錄重新開案。')+fragment.body.innerHTML;
+  }
+  function renderLifecycle(c,b) {
+    const state=b.lifecycle, closed=b.case.status==='closed';
+    const history=b.case_events.length?b.case_events.slice().reverse().map(v=>record(v.action==='reopen'?'重新開案':v.outcome==='withdrawn'?'未成交結案':'完成業務結案',note(`${date(v.occurred_at)}（台北） · ${v.actor}\n原因：${v.reason}\n核對依據：${v.reference}${v.supplier_settlement_checked?'\n已人工核對供應商結算與後續服務':''}${v.withdraw_adoption_checked?'\n已明確核對撤回客人採用報價':''}`))).join(''):'<div class="empty-state">尚無結案／重新開案紀錄。舊案件可能只有進度標示，請先核對實際狀況。</div>';
+    const section=(label,intent,blockers)=>`<article class="operation-record lifecycle-decision"><h3>${label}</h3>${blockers.length?blockers.map(notice).join(''):note('本站紀錄已符合條件；送出前仍須人工核對。')}${btn(label,'ops-form',c,`data-module="lifecycle" data-intent="${intent}"`,false,Boolean(blockers.length))}</article>`;
+    return note('結案是本站的業務整理。供應商取消、退款、轉帳與客人聯絡仍須依旅行社原流程辦理。')+(closed?notice(state.last_outcome==='withdrawn'?'此案件為未成交結案。重新開案不會自動恢復已撤回的採用報價。':'此案件已結案，歷史紀錄僅供查看。')+btn('記錄重新開案','ops-form',c,'data-module="lifecycle" data-intent="reopen"',true):section('完成業務結案','completed',state.completed_blockers)+section('未成交結案','withdrawn',state.withdrawn_blockers))+'<h3>處理紀錄</h3>'+history;
+  }
+  function renderWorkingModule(c,module,b) {
+    if(module==='quotes')return note('每版報價保留當時需求、所選價格、費用與退改條件。下載或複製後，請自行用 LINE／Email 送出；內部成本與核對依據不會放進對客文件。')+newButton(c,module,'建立報價新版')+(b.quotes.length?b.quotes.slice().reverse().map(q=>record(`第 ${q.version} 版 · ${q.title}`,note(`有效至 ${date(q.valid_until)}（台北）`)+Object.entries(q.totals).map(([k,v])=>`<p><b>${money(k,v)}</b> · 預估毛利：${money(k,q.expected_margin[k])}</p>`).join('')+(q.events.length?`<details><summary>版本處理紀錄</summary>${q.events.map(v=>note(`${{sent:'已人工送出',accept:'客人採用',reject:'客人未採用',replaced:'已被新版取代',withdrawn:'已核對撤回採用'}[v.action]||v.action} · ${date(v.at)}\n${v.reference||v.reason||''}`)).join('')}</details>`:''),publicButton(c,module,q.id)+(q.status==='draft'?editButton(c,module,q.id,'sent','記錄已人工送出'):'')+(q.status==='sent'?editButton(c,module,q.id,'accept','記錄客人採用')+editButton(c,module,q.id,'reject','記錄客人未採用'):''),q.status)).join(''):'<div class="empty-state">尚無正式報價。先到「比較與選方案」選取有效方案，再建立第一版。</div>');
+    if(module==='tasks')return note('把訂金、尾款、開票、取消、補件與回覆期限放在這裡。期限以台北時間顯示，系統不會自動通知或替您開票。')+newButton(c,module,'新增案件待辦')+(b.work_items.length?b.work_items.map(t=>renderTask(t,b.case.status==='closed')).join(''):'<div class="empty-state">尚無待辦。可先記錄下一次回覆與供應商期限。</div>');
     if(module==='bookings')return b.warnings.filter(w=>w.includes('確認號也登錄')).map(notice).join('')+note('請先在旅行社或供應商系統完成訂購，再填已核對的確認號。作廢只修正本站紀錄，取消訂購仍須聯絡供應商。')+(!accepted(b)?notice('尚未記錄客人採用報價，請先完成報價流程。'):'')+newButton(c,module,'新增訂購確認',!accepted(b))+(b.bookings.length?b.bookings.map(v=>record(v.title,note(`${v.kind==='flight'?'機票':'飯店'} · ${v.supplier}\n確認號：${v.confirmation_number}\n${v.customer_details}\n核對依據：${v.reference}`)+(v.quote_id!==b.accepted_quote_id?notice('這筆屬於舊版報價，請核對異動後重新登錄；原紀錄保留。'):''),v.status!=='voided'?(!v.binding_current?editButton(c,module,v.id,'rebind','重新核對／沿用至本版'):'')+editButton(c,module,v.id,'void','作廢錯誤紀錄'):'',v.status)).join(''):'<div class="empty-state">尚無訂購確認。需記錄機票／飯店各項供應商的正式確認。</div>');
     if(module==='ledger')return note('這是人工對帳紀錄，不會轉帳。按幣別分開；現金收付差額不是毛利。未知成本／不同幣別不會自動換算。')+Object.entries(b.balances).map(([k,v])=>record(`${k} 對帳`,[['報價總額',v.quote_total],['客人淨收款',v.net_received],['客人尚欠（負數為溢收）',v.customer_balance],['供應商淨付款',v.net_paid],['收付差額',v.net_cash],['預估毛利（成本完整才計算）',v.expected_margin]].map(([label,value])=>`<div class="money-row"><span>${E(label)}</span><b>${money(k,value)}</b></div>`).join(''))).join('')+(!accepted(b)?notice('尚未記錄客人採用報價，無法新增收付款。'):'')+newButton(c,module,'新增實際收付款',!accepted(b))+(b.ledger.length?b.ledger.slice().reverse().map(v=>record(moneyKinds[v.kind],note(`${v.currency} ${v.amount} · ${date(v.occurred_at)}（台北）\n核對依據：${v.reference}\n${v.memo}`),v.status!=='voided'?editButton(c,module,v.id,'void','作廢錯誤紀錄'):'',v.status)).join(''):'<div class="empty-state">尚未記錄實際收付款。</div>');
     return note('先逐項核對文件，再產生行前摘要。摘要提供對客說明與連結；電子機票／住宿憑證原檔仍須您另外交付。訂購或文件變更後，請產生新版摘要。')+b.warnings.map(notice).join('')+newButton(c,module,'新增文件清單項目')+b.documents.map(v=>record(v.title,note(`${docKinds[v.kind]} · ${v.required?'必備':'選用'}${v.needs_recheck?' · 需求或訂購已變更，須重新核對':''}\n${v.customer_text||'尚未填對客說明'}${v.customer_url?`\n${v.customer_url}`:''}`),editButton(c,module,v.id,'document','核對文件／補件'),v.needs_recheck?'stale':v.status)).join('')+btn('產生行前摘要新版','ops-form',c,`data-module="pretrip" data-intent="pack"`,true,!accepted(b))+(!accepted(b)?notice('尚未記錄客人採用報價，無法產生行前摘要。'):'')+(b.pretrip.length?b.pretrip.slice().reverse().map(p=>record(`第 ${p.version} 版 · ${p.title}`,p.stale?notice('資料已變更，此版本已失效。請重新產生摘要。'):p.blockers.map(notice).join('')+(p.status==='draft'?notice('草稿不可複製、列印或交付。補齊後請產生新版。'):'')+(p.delivery?note(`已交付：${p.delivery.channel} · ${date(p.delivery.occurred_at)}（台北）\n依據：${p.delivery.reference}`):''),publicButton(c,module,p.id,p.stale||!['prepared','delivered'].includes(p.status))+(p.status==='prepared'&&!p.stale?editButton(c,module,p.id,'deliver','記錄已人工交付'):''),p.stale?'stale':p.status)).join(''):'<div class="empty-state">尚無行前摘要；缺件時可先產生草稿，補齊後再產生可交付版本。</div>');
@@ -60,6 +74,7 @@
     const generation=A.beginSheetRequest();
     if(generation===null)return;
     const b=await A.api(`${path(c)}/operations`);
+    if(b.case.status==='closed'&&!(module==='lifecycle'&&intent==='reopen'))throw new Error('案件已結案，請先記錄重新開案。');
     let workflow=null;
     if(module==='quotes'&&intent==='create')workflow=await A.api(`${path(c)}/options`);
     if(!A.sheetRequestCurrent(generation))return;
@@ -68,7 +83,18 @@
     if(id&&!item)throw new Error('紀錄已不存在，請重新開啟案件。');
     const values=form=>Object.fromEntries(new FormData(form));
     const proof=v=>({reference:v.reference,occurred_at:new Date(v.occurred_at).toISOString(),checked:v.checked==='on'});
-    if(intent==='rebind') {
+    if(module==='lifecycle') {
+      const reopen=intent==='reopen', completed=intent==='completed';
+      title=reopen?'記錄重新開案':completed?'完成業務結案':'未成交結案';
+      const blockers=reopen?[]:b.lifecycle[`${intent}_blockers`];
+      if(blockers.length)throw new Error(blockers.join('；'));
+      body=notice(reopen?'重新開案後會依目前有效報價與訂購推算進度。已撤回的採用不會恢復，原收付款、文件與歷史均保留。':completed?'請核對交付、客人款項、供應商結算及後續服務。結案後案件僅供查看。':'請先依原流程處理取消與退款。本站會保留所有歷史，結案後案件僅供查看。')+text(reopen?'重新開案原因':'結案原因','reason','',true,500)+evidence(reopen?'我已核對重新開案原因與現有業務紀錄。':'我已核對結案原因、待辦與收付款。');
+      if(completed)body+=check('supplier_settlement_checked','我已人工核對供應商款項與後續服務均已處理。');
+      if(!reopen&&!completed&&q)body+=notice('客人曾採用此報價；此次未成交結案將明確撤回採用，並保留原採用歷史。')+check('withdraw_adoption_checked','我已核對客人決定，確認撤回原採用報價。');
+      endpoint=`lifecycle/${reopen?'reopen':'close'}`;
+      payload=v=>({...proof(v),reason:v.reason,expected_state:b.lifecycle.expected_state,...(reopen?{}:{outcome:intent,...(completed?{supplier_settlement_checked:v.supplier_settlement_checked==='on'}:q?{withdraw_adoption_checked:v.withdraw_adoption_checked==='on'}:{})})});
+      submit=title;
+    } else if(intent==='rebind') {
       title='重新核對訂購並沿用至本版';body=note(`${item.title} · ${item.confirmation_number}`)+notice('請在供應商核對這個確認號仍符合目前採用報價、日期與旅客。保留原確認號及歷史，不會作廢實際訂單。')+text('重新核對後的對客內容','customer_details',item.customer_details)+input('重新核對／異動原因','reason','','required maxlength="500"')+evidence('我已在供應商正式系統重新核對此確認號，確認符合目前採用版本。');
       endpoint=`bookings/${id}/rebind`;payload=v=>({...proof(v),reason:v.reason,customer_details:v.customer_details});submit='保存重新核對紀錄';
     } else if(intent==='void') {
@@ -144,6 +170,7 @@
     catch(err){if(err.status>=400&&err.status<500)op.intent=null;throw err;}
     A.markFormCommitted(form,'ops-open',{caseId:op.c,module:op.module});form.dataset.dirty='false';A.showToast('已保存，歷史紀錄會保留。');
     if(A.sheetRequestCurrent(op.stamp)&&form.isConnected)await returnToOrigin(op);
+    if(op.module==='lifecycle')await A.loadCases();
     await A.loadHome();
     if($('#view-tasks').classList.contains('is-active'))await loadTasks();
   }
@@ -161,7 +188,7 @@
   }
   async function loadTasks() {
     const generation=++tasksGeneration;
-    try {const {items}=await A.api('/api/mom/work-items');if(generation!==tasksGeneration)return;const filter=$('#taskStatusFilter').value;const visible=items.filter(t=>t.status===filter);$('#allDeadlines').innerHTML=visible.length?visible.map(renderTask).join(''):'<div class="empty-state">沒有符合的待辦。請從案件的「期限待辦」新增。</div>';}
+    try {const {items}=await A.api('/api/mom/work-items');if(generation!==tasksGeneration)return;const filter=$('#taskStatusFilter').value;const visible=items.filter(t=>t.status===filter);$('#allDeadlines').innerHTML=visible.length?visible.map(t=>renderTask(t)).join(''):'<div class="empty-state">沒有符合的待辦。請從案件的「期限待辦」新增。</div>';}
     catch(err){if(!(err instanceof A.ReauthenticationError))renderLoadError('allDeadlines',err,'ops-refresh-tasks');}
   }
   function renderLoadError(id,err,action) {
@@ -173,7 +200,7 @@
     try {
       const {items}=await A.api('/api/mom/work-items');if(generation!==homeGeneration)return;
       const urgent=items.filter(t=>t.status==='open'&&['overdue','today'].includes(t.timing));
-      $('#homeDeadlines').innerHTML=urgent.length?urgent.map(renderTask).join(''):'<div class="empty-state">目前沒有逾期或今天到期的待辦。之後的期限可到「待辦」查看。</div>';
+      $('#homeDeadlines').innerHTML=urgent.length?urgent.map(t=>renderTask(t)).join(''):'<div class="empty-state">目前沒有逾期或今天到期的待辦。之後的期限可到「待辦」查看。</div>';
     }catch(err){if(generation===homeGeneration&&!(err instanceof A.ReauthenticationError))renderLoadError('homeDeadlines',err,'ops-refresh-home');}
   }
   A.registerAction('ops-open',el=>openModule(el.dataset.caseId,el.dataset.module,el.dataset.recordId?`[data-id="${CSS.escape(el.dataset.recordId)}"]`:''));

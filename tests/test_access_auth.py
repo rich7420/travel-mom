@@ -289,3 +289,34 @@ def test_access_operator_agency_lifecycle_and_export_boundaries(access_client, s
         assert access_client.post(base+suffix,json={},headers=signed).status_code == 403
     assert access_client.delete(base+'/quotes/'+quote['id'],headers=signed).status_code == 403
     assert access_client.patch(base+'/bookings/'+booking['id'],json={},headers=signed).status_code == 403
+
+
+def test_lifecycle_routes_exact_authorization_origin_and_verified_actor(access_client, signing_keys):
+    from uuid import uuid4
+    from app.db import connect
+    private=signing_keys[0]; mom=headers(private)
+    case=access_client.post('/api/cases',headers=mom,json={'customer_name':'Access 結案合成測試'}).json()
+    base=f"/api/mom/cases/{case['id']}"
+    state=access_client.get(base+'/operations',headers=mom).json()['lifecycle']['expected_state']
+    payload={'request_id':str(uuid4()),'expected_state':state,'reason':'客人取消詢問','reference':'合成對話',
+             'occurred_at':datetime.now(timezone.utc).isoformat(),'checked':True,'outcome':'withdrawn'}
+    assert access_client.post(base+'/lifecycle/close',json=payload).status_code==401
+    assert access_client.post(base+'/lifecycle/close',headers={**mom,'Origin':'https://other.example'},json=payload).status_code==403
+    for path in ('close/','close-extra','unknown'):
+        assert access_client.post(base+'/lifecycle/'+path,headers=mom,json=payload).status_code==403
+    assert access_client.patch(base+'/lifecycle/close',headers=mom,json=payload).status_code==403
+    closed=access_client.post(base+'/lifecycle/close',headers=mom,json=payload)
+    assert closed.status_code==200 and closed.json()['event']['actor']=='mom@example.com'
+    state=access_client.get(base+'/operations',headers=mom).json()['lifecycle']['expected_state']
+    reopened=access_client.post(base+'/lifecycle/reopen',headers=mom,json={k:v for k,v in {**payload,'request_id':str(uuid4()),'expected_state':state}.items() if k!='outcome'})
+    assert reopened.status_code==200 and reopened.json()['status']=='intake'
+    with connect() as db:
+        assert db.execute("SELECT actor FROM audit_log WHERE case_id=? AND action='agency.case.reopen'",(case['id'],)).fetchone()[0]=='mom@example.com'
+
+
+@pytest.mark.parametrize('path',['/api/browser/runs/synthetic/abandon','/api/browser/hotel-runs/synthetic/abandon','/api/browser/tasks/synthetic/abandon'])
+def test_search_abandon_is_admin_only_and_origin_protected(access_client,signing_keys,path):
+    private=signing_keys[0]
+    assert access_client.post(path,headers=headers(private),json={}).status_code==403
+    assert access_client.post(path,headers={**headers(private,email='admin@example.com'),'Origin':'https://wrong.example'},json={}).status_code==403
+    assert access_client.post(path,headers=headers(private,email='admin@example.com'),json={}).status_code==422

@@ -61,6 +61,7 @@ _OPERATOR_ROUTES = (
     ("GET", r"/api/mom/cases/[^/]+/operations"),
     ("GET", r"/api/mom/cases/[^/]+/(?:quotes|pretrip)/[^/]+/document"),
     ("POST", r"/api/mom/cases/[^/]+/(?:quotes|work-items|bookings|documents|ledger|pretrip)"),
+    ("POST", r"/api/mom/cases/[^/]+/lifecycle/(?:close|reopen)"),
     ("POST", r"/api/mom/cases/[^/]+/quotes/[^/]+/(?:sent|accept|reject)"),
     ("POST", r"/api/mom/cases/[^/]+/(?:bookings|ledger)/[^/]+/void"),
     ("POST", r"/api/mom/cases/[^/]+/bookings/[^/]+/rebind"),

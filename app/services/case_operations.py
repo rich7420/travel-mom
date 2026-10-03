@@ -13,6 +13,7 @@ from app.repositories import _case_from_row
 from app.services.case_workflow import case_workflow, trip_snapshot
 
 BUSINESS_ZONE = ZoneInfo("Asia/Taipei")
+CASE_TABLES = ("quotes", "work_items", "bookings", "documents", "ledger", "pretrip", "case_events")
 
 
 def snapshot(case) -> dict:
@@ -28,11 +29,17 @@ def confirmed_bookings(db, case, quote: dict) -> list[dict]:
     return [b for b in rows(db, "bookings", case.id) if b["status"] == "confirmed" and b["quote_id"] == quote["id"] and trip_matches(b["case_snapshot"], snapshot(case))]
 
 
+def booking_status(case, quote: dict, bookings: list[dict]) -> str:
+    if not trip_matches(quote["case_snapshot"], snapshot(case)):
+        return "quoting"
+    covered = {b["kind"] for b in bookings if b["status"] == "confirmed" and b["quote_id"] == quote["id"] and trip_matches(b["case_snapshot"], snapshot(case))}
+    return "confirmed" if {i["kind"] for i in quote["items"]} <= covered else "booking"
+
+
 def update_booking_status(db, case, quote: dict) -> None:
-    covered = {b["kind"] for b in confirmed_bookings(db, case, quote)}
-    complete = {i["kind"] for i in quote["items"]} <= covered
     if case.status.value not in {"travelling", "closed"}:
-        db.execute("UPDATE trip_cases SET status=?,updated_at=? WHERE id=?", ("confirmed" if complete else "booking", now_iso(), case.id))
+        status = booking_status(case, quote, rows(db, "bookings", case.id))
+        db.execute("UPDATE trip_cases SET status=?,updated_at=? WHERE id=?", (status, now_iso(), case.id))
 
 
 def require(condition: bool, message: str) -> None:
@@ -183,8 +190,8 @@ def deadline_state(item: dict) -> dict:
 
 def list_work_items() -> list[dict]:
     with connect() as db:
-        found = db.execute("SELECT w.payload_json,c.customer_name FROM agency_work_items w JOIN trip_cases c ON c.id=w.case_id ORDER BY w.due_at,w.id").fetchall()
-    return [deadline_state({**json.loads(r[0]), "customer_name": r[1]}) for r in found]
+        found = db.execute("SELECT w.payload_json,c.customer_name,c.status FROM agency_work_items w JOIN trip_cases c ON c.id=w.case_id ORDER BY w.due_at,w.id").fetchall()
+    return [deadline_state({**json.loads(r[0]), "customer_name": r[1], "case_closed": r[2] == "closed"}) for r in found]
 
 
 def create_booking(case_id: str, data, actor: str) -> dict:
@@ -321,11 +328,14 @@ def patch_document(case_id: str, document_id: str, data, actor: str) -> dict:
     return command(case_id, data, actor, f"document.{document_id}.patch", execute)
 
 
-def pack_source(db, case, quote: dict) -> dict:
-    bookings = rows(db, "bookings", case.id)
-    docs = rows(db, "documents", case.id)
+def pack_source_from(case, quote: dict | None, bookings: list[dict], documents: list[dict]) -> dict:
     # Include voided/old bindings and every revision in the guard; no URL is fetched.
-    return {"case_snapshot": snapshot(case), "quote_id": quote["id"], "quote_version": quote["version"], "bookings": bookings, "documents": docs}
+    return {"case_snapshot": snapshot(case), "quote_id": quote["id"] if quote else None,
+            "quote_version": quote["version"] if quote else None, "bookings": bookings, "documents": documents}
+
+
+def pack_source(db, case, quote: dict) -> dict:
+    return pack_source_from(case, quote, rows(db, "bookings", case.id), rows(db, "documents", case.id))
 
 
 def document_current(doc: dict, source: dict) -> bool:
@@ -407,15 +417,15 @@ def case_operations(case_id: str) -> dict:
         if not case_row:
             raise KeyError(case_id)
         case = _case_from_row(case_row)
-        bundle = {table: rows(db, table, case_id) for table in ["quotes", "work_items", "bookings", "documents", "ledger", "pretrip"]}
+        bundle = lifecycle_records(db, case_id)
+        bundle["lifecycle"] = lifecycle_summary(case, bundle)
         quote = next((q for q in bundle["quotes"] if q["status"] == "accepted"), None)
         bundle["accepted_quote_id"] = quote["id"] if quote else None
         bundle["balances"] = balances(quote, bundle["ledger"])
-        source = {"case_snapshot": snapshot(case), "quote_id": quote["id"] if quote else None,
-                  "bookings": bundle["bookings"], "documents": bundle["documents"]}
+        source = pack_source_from(case, quote, bundle["bookings"], bundle["documents"])
         bundle["warnings"] = pack_blockers(source, quote) if quote else ["尚未記錄客人採用的報價"]
         # Compute hashes before adding response-only flags to the stored records.
-        source_hash = fingerprint(pack_source(db, case, quote)) if quote else None
+        source_hash = fingerprint(source) if quote else None
         blocked = bool(bundle["warnings"])
         for doc in bundle["documents"]:
             doc["needs_recheck"] = doc["status"] == "ready" and not document_current(doc, source)
@@ -430,6 +440,7 @@ def case_operations(case_id: str) -> dict:
         bundle["work_items"] = [deadline_state(i) for i in bundle["work_items"]]
         for pack in bundle["pretrip"]:
             pack["stale"] = not quote or pack["source_hash"] != source_hash or blocked
+        bundle.pop("sales_state")
         return {"case": case.model_dump(mode="json"), **bundle}
 
 
@@ -438,6 +449,8 @@ def lifecycle_action(case) -> dict | None:
     def action(module, label, reason):
         return {"kind": module, "module": module, "label": label, "reason": reason, "case_id": case.id}
 
+    if case.status.value == "closed":
+        return action("lifecycle", "查看結案／重新開案", "此案件目前僅供查看")
     with connect() as db:
         db.execute("BEGIN")
         tasks = [deadline_state(i) for i in rows(db, "work_items", case.id)]
@@ -471,3 +484,141 @@ def lifecycle_action(case) -> dict | None:
         if any(p["status"] == "delivered" for p in packs):
             return action("case", "查看交付與後續事項", "目前行前摘要已記錄人工交付；可核對待辦與收付款")
         return action("pretrip", "交付行前資料" if any(p["status"] == "prepared" for p in packs) else "產生行前摘要", "文件已核對，請完成摘要與人工交付")
+
+
+def lifecycle_records(db, case_id: str) -> dict:
+    records = {table: rows(db, table, case_id) for table in CASE_TABLES}
+    records["sales_state"] = {table: [dict(r) for r in db.execute(
+        f"SELECT * FROM {table} WHERE case_id=? ORDER BY rowid", (case_id,))]
+        for table in ("case_options", "case_option_selections", "flight_search_runs", "hotel_search_runs", "browser_tasks")}
+    return records
+
+
+def lifecycle_fingerprint(case, records: dict) -> str:
+    return fingerprint({"case": case.model_dump(mode="json"), "records": records})
+
+
+def reopen_status(case, records: dict) -> str:
+    quote = next((q for q in records["quotes"] if q["status"] == "accepted"), None)
+    if quote:
+        return booking_status(case, quote, records["bookings"])
+    return "quoting" if records["quotes"] or records["sales_state"]["case_options"] or records["sales_state"]["case_option_selections"] else "intake"
+
+
+def lifecycle_summary(case, records: dict) -> dict:
+    quote = next((q for q in records["quotes"] if q["status"] == "accepted"), None)
+    common = [f"尚有未完成待辦：{item['title']}" for item in records["work_items"] if item["status"] == "open"]
+    sales = records["sales_state"]
+    if any(r["status"] == "running" for t in ("flight_search_runs", "hotel_search_runs") for r in sales[t]) or any(t["status"] in {"running", "dispatched"} for t in sales["browser_tasks"]):
+        common.append("尚有進行中的查價／瀏覽任務，請先完成或由管理員處理")
+    completed = list(common)
+    if not quote:
+        completed.append("尚未記錄客人採用的報價")
+    else:
+        source = pack_source_from(case, quote, records["bookings"], records["documents"])
+        completed.extend(pack_blockers(source, quote))
+        current_hash = fingerprint(source)
+        if not any(p["status"] == "delivered" and p["source_hash"] == current_hash for p in records["pretrip"]):
+            completed.append("尚未記錄目前完整行前摘要已人工交付")
+        for currency, balance in balances(quote, records["ledger"]).items():
+            if (balance["customer_balance"] is not None and Decimal(balance["customer_balance"]) != 0) or (balance["customer_balance"] is None and Decimal(balance["net_received"]) != 0):
+                completed.append(f"{currency} 客人款項尚未結清或幣別需核對")
+    withdrawn = list(common)
+    if any(b["status"] == "confirmed" for b in records["bookings"]):
+        withdrawn.append("仍有有效訂購；取消／退款需先依旅行社原流程處理")
+    for currency, balance in balances(quote, records["ledger"]).items():
+        if Decimal(balance["net_received"]) != 0 or Decimal(balance["net_paid"]) != 0:
+            withdrawn.append(f"{currency} 收付款尚有未沖回金額，不能標記未成交")
+    events = records["case_events"]
+    last_close = next((e for e in reversed(events) if e["action"] == "close"), None)
+    return {"expected_state": lifecycle_fingerprint(case, records), "completed_blockers": completed,
+            "withdrawn_blockers": withdrawn, "last_outcome": last_close.get("outcome") if last_close else None,
+            "reopen_status": reopen_status(case, records)}
+
+
+def _lifecycle_command(case_id: str, data, actor: str, action: str) -> dict:
+    def execute(db, case):
+        records = lifecycle_records(db, case_id)
+        require(data.expected_state == lifecycle_fingerprint(case, records), "案件或業務紀錄已變更，請重新開啟結案畫面核對")
+        summary = lifecycle_summary(case, records)
+        quote = next((q for q in records["quotes"] if q["status"] == "accepted"), None)
+        if action == "close":
+            blockers = summary[f"{data.outcome}_blockers"]
+            require(not blockers, "；".join(blockers[:5]))
+            require(data.outcome != "withdrawn" or not quote or data.withdraw_adoption_checked is True,
+                    "已有客人採用報價；未成交結案前須明確核對並撤回採用紀錄")
+            next_status = "closed"
+        else:
+            require(case.status.value == "closed", "只有已結案案件可以記錄重新開案")
+            next_status = summary["reopen_status"]
+        timestamp = now_iso()
+        event = new_record(case_id, "case_event", {"action": action, "outcome": data.outcome if action == "close" else None,
+            "reason": data.reason, "reference": data.reference, "occurred_at": data.occurred_at.isoformat(),
+            "actor": actor, "from_status": case.status.value, "to_status": next_status,
+            "accepted_quote_id": quote["id"] if quote else None,
+            "supplier_settlement_checked": data.supplier_settlement_checked if action == "close" else None,
+            "withdraw_adoption_checked": data.withdraw_adoption_checked if action == "close" else None})
+        if action == "close" and data.outcome == "withdrawn" and quote:
+            # Withdrawal is an explicit customer decision, never an implicit re-adoption on reopen.
+            quote["status"] = "withdrawn"
+            quote["events"].append({"action": "withdrawn", "reason": data.reason, "reference": data.reference,
+                                   "occurred_at": data.occurred_at.isoformat(), "actor": actor, "at": timestamp})
+            save(db, "quotes", quote)
+        db.execute("UPDATE trip_cases SET status=?,updated_at=? WHERE id=?", (next_status, timestamp, case_id))
+        db.execute("INSERT INTO agency_case_events(id,case_id,payload_json,created_at) VALUES(?,?,?,?)",
+                   (event["id"], case_id, encode(event), event["created_at"]))
+        return {"id": case_id, "status": next_status, "updated_at": timestamp, "event": event}
+    return command(case_id, data, actor, f"case.{action}", execute)
+
+
+def close_case(case_id: str, data, actor: str) -> dict:
+    return _lifecycle_command(case_id, data, actor, "close")
+
+
+def reopen_case(case_id: str, data, actor: str) -> dict:
+    return _lifecycle_command(case_id, data, actor, "reopen")
+
+
+def abandon_search(kind: str, run_id: str, data, actor: str) -> dict:
+    table = {"flight": "flight_search_runs", "hotel": "hotel_search_runs"}[kind]
+    with connect() as db:
+        run = db.execute(f"SELECT case_id FROM {table} WHERE id=?", (run_id,)).fetchone()
+        if not run:
+            raise KeyError(run_id)
+        require(bool(run["case_id"]), "此操作僅處理案件關聯的卡住查價")
+        case_id = run["case_id"]
+    def execute(db, case):
+        run = db.execute(f"SELECT * FROM {table} WHERE id=? AND case_id=?", (run_id, case_id)).fetchone()
+        require(run is not None and run["updated_at"] == data.expected_updated_at, "查價已變更，請重新開啟並核對")
+        active_task = db.execute("SELECT 1 FROM browser_tasks WHERE search_run_id=? AND status IN ('running','dispatched') LIMIT 1", (run_id,)).fetchone()
+        require(run["status"] == "running" or active_task, "只有卡住的查價或重新驗價可記錄中止")
+        timestamp = now_iso()
+        db.execute(f"UPDATE {table} SET status='failed',updated_at=? WHERE id=?", (timestamp, run_id))
+        db.execute("UPDATE browser_tasks SET status='failed',updated_at=? WHERE search_run_id=? AND status IN ('queued','running','dispatched')", (timestamp, run_id))
+        # The human-confirmed stop and its reason are retained even without a lifecycle event.
+        db.execute("INSERT INTO audit_log(case_id,actor,action,payload_json,created_at) VALUES(?,?,?,?,?)",
+                   (case_id, actor, "search.abandoned", encode({"run_id": run_id, "kind": kind, "reason": data.reason,
+                    "reference": data.reference, "occurred_at": data.occurred_at.isoformat(), "worker_stopped_checked": True}), timestamp))
+        return {"id": run_id, "case_id": case_id, "status": "failed", "updated_at": timestamp}
+    return command(case_id, data, actor, f"search.{kind}.{run_id}.abandon", execute)
+
+
+def abandon_standalone_task(task_id: str, data, actor: str) -> dict:
+    with connect() as db:
+        task = db.execute("SELECT case_id FROM browser_tasks WHERE id=?", (task_id,)).fetchone()
+        if not task:
+            raise KeyError(task_id)
+        require(bool(task["case_id"]), "此操作僅處理案件關聯的獨立任務")
+        case_id = task["case_id"]
+    def execute(db, case):
+        task = db.execute("SELECT * FROM browser_tasks WHERE id=? AND case_id=?", (task_id, case_id)).fetchone()
+        require(task is not None and task["updated_at"] == data.expected_updated_at, "任務已變更，請重新開啟並核對")
+        require(not task["search_run_id"], "此任務屬於查價，請使用該查價的中止操作")
+        require(task["status"] in {"running", "dispatched"}, "只有卡住的執行中任務可記錄中止")
+        timestamp = now_iso()
+        db.execute("UPDATE browser_tasks SET status='failed',updated_at=? WHERE id=?", (timestamp, task_id))
+        db.execute("INSERT INTO audit_log(case_id,actor,action,payload_json,created_at) VALUES(?,?,?,?,?)",
+                   (case_id, actor, "task.abandoned", encode({"task_id": task_id, "reason": data.reason,
+                    "reference": data.reference, "occurred_at": data.occurred_at.isoformat(), "worker_stopped_checked": True}), timestamp))
+        return {"id": task_id, "case_id": case_id, "status": "failed", "updated_at": timestamp}
+    return command(case_id, data, actor, f"task.{task_id}.abandon", execute)

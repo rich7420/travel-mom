@@ -17,3 +17,6 @@ Independent review used read-only design and implementation checkpoints. Backend
 Inherited conservative limits retained: blank versus null origin can cause an extra reverification; mid-upload disconnect stops side effects but may produce outer-middleware log noise. Lifecycle-specific close/reopen, labelled historical audit export, attachment storage, passenger manifests, external reminders and specialist/group/change-ticketing workflows remain future scope. Obsolete delivered packs remain internally stored but cannot be re-exported for customer use. Real Cloudflare IdP/MFA/tunnel and Mom's usability require actual deployment/user testing; these were not claimed.
 
 Ignored local evidence: `data/hardening-review/browser/results.json`, desktop/mobile/tablet screenshots, reviewer JSON and `docker-context.json`. See [architecture](DEVELOPER_ARCHITECTURE.md), [user guide source](USER_GUIDE_ZH_TW_DRAFT.md) and [design QA](../design/qa.md).
+
+
+Subsequent increment: explicit close/reopen, three-engine browser coverage and hardened runtime recovery are now implemented and verified locally. The historical remaining-scope list above is superseded for these items by [lifecycle and recovery verification](LIFECYCLE_RECOVERY_VERIFICATION.md). Real public identity/Tunnel and Mom acceptance remain pending.

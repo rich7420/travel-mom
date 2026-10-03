@@ -17,7 +17,7 @@ def customer_document(case_id: str, record_id: str, kind: str) -> str:
         if kind == "quote":
             safe = public_quote(value)
             case = _case_from_row(db.execute("SELECT * FROM trip_cases WHERE id=?", (case_id,)).fetchone())
-            outdated = value["status"] in {"replaced", "rejected"} or not trip_matches(value["case_snapshot"], snapshot(case)) or datetime.fromisoformat(value["valid_until"]) <= datetime.now(timezone.utc)
+            outdated = value["status"] in {"replaced", "rejected", "withdrawn"} or not trip_matches(value["case_snapshot"], snapshot(case)) or datetime.fromisoformat(value["valid_until"]) <= datetime.now(timezone.utc)
             warning = "報價歷史版本或已失效，需核對目前有效版本。" if outdated else ""
             body = f"<p>報價版本：{safe['version']} · 有效至 {escape(_taipei_time(safe['valid_until']))}</p>"
             for item in safe["items"]:

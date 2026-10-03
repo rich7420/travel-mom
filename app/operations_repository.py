@@ -17,7 +17,7 @@ class OperationBusy(RuntimeError):
     pass
 
 
-TABLES = {"quotes", "work_items", "bookings", "documents", "ledger", "pretrip"}
+TABLES = {"quotes", "work_items", "bookings", "documents", "ledger", "pretrip", "case_events"}
 
 
 def encode(value) -> str:
@@ -32,7 +32,7 @@ def rows(db, table: str, case_id: str) -> list[dict]:
     if table not in TABLES:
         raise ValueError("unknown operations table")
     return [json.loads(row[0]) for row in db.execute(
-        f"SELECT payload_json FROM agency_{table} WHERE case_id=? ORDER BY created_at, id", (case_id,))]
+        f"SELECT payload_json FROM agency_{table} WHERE case_id=? ORDER BY {'rowid' if table == 'case_events' else 'created_at, id'}", (case_id,))]
 
 
 def record(db, table: str, case_id: str, record_id: str) -> dict:
@@ -45,7 +45,7 @@ def record(db, table: str, case_id: str, record_id: str) -> dict:
 
 
 def save(db, table: str, value: dict) -> dict:
-    if table not in TABLES:
+    if table not in TABLES or table == "case_events":
         raise ValueError("unknown operations table")
     columns = {"id": value["id"], "case_id": value["case_id"], "payload_json": encode(value), "created_at": value["created_at"]}
     if table == "quotes":
@@ -81,6 +81,8 @@ def command(case_id: str, data, actor: str, action: str, execute) -> dict:
                 if previous[0] != digest:
                     raise OperationConflict("重試編號已用於不同內容，請重新提交")
                 return json.loads(previous[1])
+            if case_row["status"] == "closed" and action != "case.reopen":
+                raise OperationConflict("已結案案件僅供查看，請先記錄重新開案")
             result = execute(db, _case_from_row(case_row))
             next_status = db.execute("SELECT status FROM trip_cases WHERE id=?", (case_id,)).fetchone()[0]
             timestamp = now_iso()

@@ -75,7 +75,7 @@ from app.cloudflare_access import AccessVerifier
 from app.request_limits import RequestBodyLimitMiddleware
 
 
-from app.operations_models import QuoteCreate, QuoteDecision, WorkItemCreate, WorkItemPatch, BookingCreate, BookingRebind, VoidRecord, LedgerCreate, DocumentCreate, DocumentPatch, PackCreate, PackDelivery
+from app.operations_models import QuoteCreate, QuoteDecision, WorkItemCreate, WorkItemPatch, BookingCreate, BookingRebind, VoidRecord, LedgerCreate, DocumentCreate, DocumentPatch, PackCreate, PackDelivery, CaseClose, CaseReopen, SearchAbandon
 from app.operations_repository import OperationConflict, OperationBusy
 from app.services import case_operations as agency
 from app.services.operation_documents import customer_document
@@ -229,7 +229,10 @@ def mom_clear_selection(case_id: str, kind: str):
         raise HTTPException(422, "kind must be flight or hotel")
     if not case_repo.get(case_id):
         raise HTTPException(404, "case not found")
-    case_workflow_repo.clear_selection(case_id, kind)
+    try:
+        case_workflow_repo.clear_selection(case_id, kind)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from None
     return {"cleared": True}
 
 
@@ -422,6 +425,8 @@ async def run_flight_search_run(run_id: str):
     run = flight_search_run_repo.get(run_id)
     if not run:
         raise HTTPException(404, "flight search run not found")
+    if run.case_id and require_case(run.case_id).status.value == "closed":
+        raise HTTPException(409, "已結案案件請先重新開案")
     results = []
     # Deliberately sequential while the POC shares one managed browser profile.
     for task_id in run.task_ids:
@@ -543,6 +548,8 @@ async def run_hotel_search_run(run_id: str):
     run = hotel_search_run_repo.get(run_id)
     if not run:
         raise HTTPException(404, "hotel search run not found")
+    if run.case_id and require_case(run.case_id).status.value == "closed":
+        raise HTTPException(409, "已結案案件請先重新開案")
     results = []
     for task_id in run.task_ids:
         try:
@@ -654,8 +661,8 @@ async def _execute_flight_run_background(run_id: str) -> None:
     run = flight_search_run_repo.get(run_id)
     if not run:
         return
-    flight_search_run_repo.set_status(run_id, "running")
     try:
+        flight_search_run_repo.set_status(run_id, "running")
         for task_id in run.task_ids:
             try:
                 await browser_task_service.run(task_id)
@@ -668,15 +675,19 @@ async def _execute_flight_run_background(run_id: str) -> None:
             flight_search_run_repo.set_status(run_id, "needs_review")
     except Exception:
         logger.exception("background flight run failed", extra={"run_id": run_id})
-        flight_search_run_repo.set_status(run_id, "failed")
+        try:
+            flight_search_run_repo.set_status(run_id, "failed")
+        except ValueError:
+            # Closed cases reject late background business mutations.
+            return
 
 
 async def _execute_hotel_run_background(run_id: str) -> None:
     run = hotel_search_run_repo.get(run_id)
     if not run:
         return
-    hotel_search_run_repo.set_status(run_id, "running")
     try:
+        hotel_search_run_repo.set_status(run_id, "running")
         for task_id in run.task_ids:
             try:
                 await browser_task_service.run(task_id)
@@ -687,7 +698,11 @@ async def _execute_hotel_run_background(run_id: str) -> None:
             hotel_search_run_repo.set_status(run_id, "needs_review")
     except Exception:
         logger.exception("background hotel run failed", extra={"run_id": run_id})
-        hotel_search_run_repo.set_status(run_id, "failed")
+        try:
+            hotel_search_run_repo.set_status(run_id, "failed")
+        except ValueError:
+            # Closed cases reject late background business mutations.
+            return
 
 
 
@@ -717,6 +732,16 @@ def agency_work_items():
 @app.get("/api/mom/cases/{case_id}/operations")
 def agency_operations(case_id: str):
     return agency_call(lambda: agency.case_operations(case_id))
+
+
+@app.post("/api/mom/cases/{case_id}/lifecycle/close")
+def agency_close_case(case_id: str, data: CaseClose, request: Request):
+    return agency_call(lambda: agency.close_case(case_id, data, agency_actor(request)))
+
+
+@app.post("/api/mom/cases/{case_id}/lifecycle/reopen")
+def agency_reopen_case(case_id: str, data: CaseReopen, request: Request):
+    return agency_call(lambda: agency.reopen_case(case_id, data, agency_actor(request)))
 
 
 @app.post("/api/mom/cases/{case_id}/quotes")
@@ -837,12 +862,17 @@ def mom_start_flight_search(run_id: str, background_tasks: BackgroundTasks):
     run = flight_search_run_repo.get(run_id)
     if not run:
         raise HTTPException(404, "flight search run not found")
+    if run.case_id and require_case(run.case_id).status.value == "closed":
+        raise HTTPException(409, "已結案案件請先重新開案")
     if run.status.value in {"running", "completed"}:
         return {"accepted": False, "reason": f"run already {run.status.value}", "progress": search_run_progress("flight", run_id)}
     if not settings.openclaw_enabled:
         return {"accepted": False, "reason": "openclaw_disabled", "message": "目前尚未連上 OpenClaw。查詢已經存好，可以之後再開始。", "progress": search_run_progress("flight", run_id)}
+    try:
+        flight_search_run_repo.set_status(run_id, "running")
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from None
     background_tasks.add_task(_execute_flight_run_background, run_id)
-    flight_search_run_repo.set_status(run_id, "running")
     return {"accepted": True, "run_id": run_id, "message": "已開始查官方航空網站。您可以先離開，稍後再回來看進度。"}
 
 
@@ -851,12 +881,17 @@ def mom_start_hotel_search(run_id: str, background_tasks: BackgroundTasks):
     run = hotel_search_run_repo.get(run_id)
     if not run:
         raise HTTPException(404, "hotel search run not found")
+    if run.case_id and require_case(run.case_id).status.value == "closed":
+        raise HTTPException(409, "已結案案件請先重新開案")
     if run.status.value in {"running", "completed"}:
         return {"accepted": False, "reason": f"run already {run.status.value}", "progress": search_run_progress("hotel", run_id)}
     if not settings.openclaw_enabled:
         return {"accepted": False, "reason": "openclaw_disabled", "message": "目前尚未連上 OpenClaw。查詢已經存好，可以之後再開始。", "progress": search_run_progress("hotel", run_id)}
+    try:
+        hotel_search_run_repo.set_status(run_id, "running")
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from None
     background_tasks.add_task(_execute_hotel_run_background, run_id)
-    hotel_search_run_repo.set_status(run_id, "running")
     return {"accepted": True, "run_id": run_id, "message": "已開始查飯店官網。您可以先離開，稍後再回來看進度。"}
 
 
@@ -897,3 +932,18 @@ async def telegram_webhook(request: Request, payload: dict):
         payload,
         request.headers.get("x-telegram-bot-api-secret-token"),
     )
+
+
+@app.post("/api/browser/runs/{run_id}/abandon")
+def abandon_flight_search(run_id: str, data: SearchAbandon, request: Request):
+    return agency_call(lambda: agency.abandon_search("flight", run_id, data, agency_actor(request)))
+
+
+@app.post("/api/browser/hotel-runs/{run_id}/abandon")
+def abandon_hotel_search(run_id: str, data: SearchAbandon, request: Request):
+    return agency_call(lambda: agency.abandon_search("hotel", run_id, data, agency_actor(request)))
+
+
+@app.post("/api/browser/tasks/{task_id}/abandon")
+def abandon_browser_task(task_id: str, data: SearchAbandon, request: Request):
+    return agency_call(lambda: agency.abandon_standalone_task(task_id, data, agency_actor(request)))

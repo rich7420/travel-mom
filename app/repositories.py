@@ -57,6 +57,16 @@ def _loads(raw: Any, default: Any) -> Any:
         return default
 
 
+def require_open_case(db, case_id: str | None) -> None:
+    if not case_id:
+        return
+    row = db.execute("SELECT status FROM trip_cases WHERE id=?", (case_id,)).fetchone()
+    if row is None:
+        raise KeyError(case_id)
+    if row["status"] == "closed":
+        raise ValueError("已結案案件僅供查看，請先記錄重新開案")
+
+
 class CaseRepo:
     def list(self) -> list[TripCase]:
         with connect() as db:
@@ -100,6 +110,8 @@ class CaseRepo:
             current = _case_from_row(row)
             if not patch:
                 return current
+            if current.status == CaseStatus.CLOSED or patch.get("status") == "closed":
+                raise ValueError("請使用案件的結案／重新開案流程，保留核對與原因")
             if patch.get("status") in {"booking", "confirmed"} and patch["status"] != current.status.value:
                 raise ValueError("訂購進度由客人採用報價與已核對的訂購確認更新，請使用案件的訂購流程")
             merged = {**current.model_dump(mode="json"), **patch, "updated_at": now_iso()}
@@ -303,6 +315,8 @@ class FlightSearchRunRepo:
             updated_at=ts,
         )
         with connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            require_open_case(db, request.case_id)
             db.execute(
                 """INSERT INTO flight_search_runs
                 (id,case_id,request_json,task_ids_json,manual_handoffs_json,unsupported_airlines_json,status,selected_task_id,selected_option_id,created_at,updated_at)
@@ -342,6 +356,11 @@ class FlightSearchRunRepo:
         ts = now_iso()
         status = FlightSearchRunStatus.PLANNED.value if task_ids else FlightSearchRunStatus.NEEDS_REVIEW.value
         with connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT case_id FROM flight_search_runs WHERE id=?", (run_id,)).fetchone()
+            if not row:
+                raise KeyError(run_id)
+            require_open_case(db, row[0])
             db.execute(
                 """UPDATE flight_search_runs SET task_ids_json=?,manual_handoffs_json=?,unsupported_airlines_json=?,status=?,updated_at=?
                 WHERE id=?""",
@@ -363,6 +382,11 @@ class FlightSearchRunRepo:
         ts = now_iso()
         value = status.value if isinstance(status, FlightSearchRunStatus) else status
         with connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT case_id FROM flight_search_runs WHERE id=?", (run_id,)).fetchone()
+            if not row:
+                raise KeyError(run_id)
+            require_open_case(db, row[0])
             db.execute("UPDATE flight_search_runs SET status=?,updated_at=? WHERE id=?", (value, ts, run_id))
             db.commit()
         obj = self.get(run_id)
@@ -378,6 +402,8 @@ class FlightSearchRunRepo:
             raise ValueError("task 不屬於此 search run")
         ts = now_iso()
         with connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            require_open_case(db, current.case_id)
             db.execute(
                 "UPDATE flight_search_runs SET selected_task_id=?,selected_option_id=?,updated_at=? WHERE id=?",
                 (task_id, option_id, ts, run_id),
@@ -491,6 +517,8 @@ class HotelSearchRunRepo:
             updated_at=ts,
         )
         with connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            require_open_case(db, request.case_id)
             db.execute(
                 """INSERT INTO hotel_search_runs
                 (id,case_id,request_json,task_ids_json,status,selected_task_id,selected_option_id,created_at,updated_at)
@@ -518,6 +546,11 @@ class HotelSearchRunRepo:
         ts=now_iso()
         status=HotelSearchRunStatus.PLANNED.value if task_ids else HotelSearchRunStatus.NEEDS_REVIEW.value
         with connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT case_id FROM hotel_search_runs WHERE id=?", (run_id,)).fetchone()
+            if not row:
+                raise KeyError(run_id)
+            require_open_case(db, row[0])
             db.execute("UPDATE hotel_search_runs SET task_ids_json=?,status=?,updated_at=? WHERE id=?",(json.dumps(task_ids),status,ts,run_id))
             db.commit()
         obj=self.get(run_id)
@@ -528,6 +561,11 @@ class HotelSearchRunRepo:
     def set_status(self, run_id: str, status: HotelSearchRunStatus | str) -> HotelSearchRun:
         ts=now_iso(); value=status.value if isinstance(status,HotelSearchRunStatus) else status
         with connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT case_id FROM hotel_search_runs WHERE id=?", (run_id,)).fetchone()
+            if not row:
+                raise KeyError(run_id)
+            require_open_case(db, row[0])
             db.execute("UPDATE hotel_search_runs SET status=?,updated_at=? WHERE id=?",(value,ts,run_id)); db.commit()
         obj=self.get(run_id)
         if not obj: raise KeyError(run_id)
@@ -539,6 +577,8 @@ class HotelSearchRunRepo:
         if task_id not in current.task_ids: raise ValueError("task 不屬於此 hotel search run")
         ts=now_iso()
         with connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            require_open_case(db, current.case_id)
             db.execute("UPDATE hotel_search_runs SET selected_task_id=?,selected_option_id=?,updated_at=? WHERE id=?",(task_id,option_id,ts,run_id)); db.commit()
         obj=self.get(run_id)
         if not obj: raise KeyError(run_id)
@@ -560,6 +600,8 @@ class BrowserTaskRepo:
             result_text=None, result_json=None, review_state="not_reviewed", **data.model_dump()
         )
         with connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            require_open_case(db, obj.case_id)
             db.execute(
                 """INSERT INTO browser_tasks
                 (id,case_id,search_run_id,parent_task_id,parent_option_id,kind,source_url,instructions,provider_code,expected_schema,status,result_text,result_json,review_state,created_at,updated_at)
@@ -608,6 +650,8 @@ class BrowserTaskRepo:
             result_text = current.result_text
         attempt_id = current.result_attempt_id if result_attempt_id is _UNSET else result_attempt_id
         with connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            require_open_case(db, current.case_id)
             db.execute(
                 "UPDATE browser_tasks SET status=?,result_text=?,result_json=?,review_state=?,result_attempt_id=?,updated_at=? WHERE id=?",
                 (status, result_text, json_blob, review_state, attempt_id, ts, task_id),
