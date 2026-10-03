@@ -17,7 +17,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "pytest-asyncio>=0.25"]
+dev = ["pytest>=8", "pytest-asyncio>=0.25", "markdown-it-py>=4,<5"]
 
 [tool.setuptools.packages.find]
 include = ["app*"]

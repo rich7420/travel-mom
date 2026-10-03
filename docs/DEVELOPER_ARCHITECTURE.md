@@ -180,7 +180,7 @@ Executed on 2026-10-03:
 | --- | --- |
 | Editable installation using tested constraints | Passed after packaging fix |
 | Wheel build, package scope and static assets | Passed; live wheel-only deployment not validated |
-| Current pytest suite | 130 passed on Python 3.12 and 3.11.14, including 35 Access authentication cases |
+| Current pytest suite | 136 passed on Python 3.12 and 3.11.14, including guide generation and Access static-asset checks |
 | Python compilation and both JavaScript syntax checks | Passed |
 | Local Skill audit | 23 Skills passed |
 | Airline recipe audit | 8 recipes and 16 regression cases passed |
@@ -207,3 +207,14 @@ Optional `AUTH_MODE=cloudflare` validates Access RS256 JWTs in `app/cloudflare_a
 Both frontends discover `/api/auth/session` before reading legacy credentials. Access mode clears both legacy sessionStorage keys and uses browser-managed Access cookies; no JWT is stored by UI code. Expired sessions or manual opaque redirects show a named, non-dismissible login dialog. A dedicated reauthentication error prevents error handlers from replacing case lists, drafts or form contents; only the explicit login button reloads. Ordinary failures still render their normal error states. Admin inline async handlers suppress only already-handled reauthentication rejections.
 
 UI validation: 16 headless Chrome checks passed, including 390px large/extra-large fonts, 768/1024px extra-large fonts, desktop layout, version hiding, empty/error states, role visibility, credential clearing, expired-session data preservation, opaque redirects and Escape-key persistence. The full three-customer/manual-offer/selection/draft-copy/reload regression also passed. See [design QA](../design/qa.md). Real Access deployment, live supplier sessions and a manual screen-reader audit remain unverified.
+
+
+## In-web user guide and workflow coverage
+
+`/static/guide.html` is generated from `docs/USER_GUIDE_ZH_TW_DRAFT.md` and `scripts/templates/user_guide.html` by `scripts/build_user_guide.py`. Only the development extra requires markdown-it-py; served deployments use checked-in HTML/CSS/JS and never parse Markdown at runtime. The generator disables source HTML, supports tables, assigns stable app-linked chapter fragments, and offers a non-writing byte comparison via `--check`. Tests catch drift and unresolved fragments. Regenerate after editing the source or template.
+
+Mom Mode links to the guide from the topbar, settings and the shared sheet header. Chapter metadata is passed to `openSheet`, keeping links out of form markup. Every help link opens a separate tab with noopener, so help does not replace an unsaved form. The guide's workbench link opens a fresh app tab; users must return to their original tab to continue unsaved work. Guide font size is stored locally and printing hides controls/navigation while retaining all chapters. Content and anchor navigation remain usable without JavaScript.
+
+Cloudflare mode protects guide HTML/CSS/JS with the existing operator rules and strict CSP. Token/local mode exposes static guide assets to anyone able to reach the server, like the existing app shell; the guide contains instructions, not customer records or credentials. No auth exceptions or backend routes were added.
+
+The [coverage check](WORKFLOW_COVERAGE_ZH_TW.md) distinguishes usable Mom workflows, optional but unverified automation, admin/API-only checks, and absent business records. Intake/search/manual-offer/selection/customer-draft flows are supported. Booking status labels, policy enums and preflight contracts do not establish completed reservations, payments, issued tickets or delivered pretrip documents.

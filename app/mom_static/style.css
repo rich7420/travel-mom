@@ -46,6 +46,9 @@ svg { display:block; width:20px; height:20px; }
 .status-ok::before { background:#537965; }
 .status-offline::before { background:#b54726; }
 .header-identity { font-size:.75rem; color:var(--muted); overflow-wrap:anywhere; max-width:240px; }
+.guide-link { display:inline-flex; flex-direction:column; justify-content:center; gap:1px; min-width:88px; min-height:44px; padding:6px 10px; color:var(--accent-dark); text-decoration:none; font-weight:650; font-size:.8rem; flex-shrink:0; }
+.guide-link small { color:var(--muted); font-weight:400; font-size:.67rem; }
+.settings-guide-link { display:inline-flex; align-items:center; margin-top:16px; text-decoration:none; }
 .hero-content { min-width:0; position:relative; z-index:1; }
 .hero-card .section-kicker { display:inline-flex; font-size:.75rem; letter-spacing:.04em; color:#d8c5a5; }
 .hero-card .primary-button::after { content:"→"; margin-left:8px; }
@@ -143,6 +146,7 @@ legend { font-weight:650; margin-bottom:8px; }
 .sheet-handle { width:38px; height:4px; border-radius:99px; background:#c6ccd3; margin:4px auto 12px; }
 .sheet-head { display:flex; justify-content:space-between; align-items:center; gap:10px; position:sticky; top:-8px; background:#fff; padding:10px 0 14px; z-index:2; }
 .sheet-head h2 { font-size:1.12rem; margin:0; overflow-wrap:anywhere; }
+.sheet-head h2 { flex:1; min-width:0; }
 .close-button { flex-shrink:0; border:0; background:#eef0f3; border-radius:8px; width:44px; height:44px; font-size:1.25rem; }
 .center-dialog { width:min(520px,calc(100% - 28px)); margin:auto; }
 .dialog-card { background:#fff; border-radius:14px; padding:24px; display:grid; gap:16px; }
@@ -196,7 +200,9 @@ legend { font-weight:650; margin-bottom:8px; }
 }
 @media(max-width:560px) {
   .topbar { padding:14px 18px; min-height:80px; gap:8px; }
-  .top-actions { gap:2px; }
+  .topbar { flex-wrap:wrap; }
+  .top-actions { gap:8px; width:100%; justify-content:flex-end; }
+  .top-actions .status-badge { margin-right:auto; white-space:normal; }
   .status-badge { font-size:.67rem; padding:5px 6px; }
   .view { padding:20px 16px; }
   .hero-card { grid-template-columns:minmax(0,1fr); gap:0; padding:24px 22px 0; border-radius:16px; }

@@ -24,3 +24,17 @@ Local evidence is intentionally ignored by Git: `data/ui-auth/report.json`, `dat
 Review: Cursor Agent, GPT high reasoning selected from the installed model list, read-only design and implementation checkpoints. Final verdict: **APPROVE**, after three rounds. The previous implementation findings (reauthentication handling, persistent login dialog, accessible names and status colors) have been corrected and checked.
 
 No blocking visual requirement remains open. One cosmetic minor is intentionally left: offline status uses gray text and a terracotta dot; the explicit 「離線」 label remains readable and does not rely on color. Matching text/dot warning colors can be considered later. This is not a complete screen-reader/WCAG certification; manual assistive-technology and Mom usability checks remain useful follow-up. Access responses were simulated in UI checks; actual Cloudflare policies, IdP/MFA and public tunnel behavior require the deployment runbook.
+
+
+## In-web guide QA (2026-10-03)
+
+Context: the in-web guide increment in [context](context.md). Result: requirements pass; Cursor Agent final verdict **APPROVE**, after read-only design and implementation checkpoints. High frontend complexity (new guide, CSS/JS and generation pipeline) used the installed GPT high-reasoning model, following the frontend review rule. Both optional P3 documentation findings were fixed: date-neutral constraints header and explicit successful-query condition for official options. No remaining blocker, major or minor finding for this increment.
+
+- Guide matches the paper/navy workspace, with a contents sidebar on desktop and native collapsible contents on mobile. Screens at 1360px and 390px extra-large were visually inspected.
+- Eleven chapter anchors resolve. Stable task fragments link from the shared sheet header, and settings/topbar links remain available. Reading help opens another tab with noopener; the original sheet and unsent input stay intact.
+- Eleven Chrome guide checks pass: context help/data preservation, chapter navigation/limits/version hiding, 1024/768/390px extra-large controls/no overflow, font persistence, Mom 390px large/extra-large help layout, settings help, print content, and no-JavaScript reading. No page errors.
+- Existing 16 UI checks pass again, including expired-login preservation. Full intake/manual-offer/selection/draft workflow passes again. All 136 pytest tests pass on Python 3.12 and 3.11.14.
+- Generation drift is checked without writing. Guide assets use strict CSP; unauthenticated Access requests fail while allowed operators can read them. Token/local mode serves the instructional static assets publicly to reachable clients, consistent with the existing shell.
+- Print hides navigation and controls, prints all chapters, and produced a local A4 PDF. No JavaScript is required to read or use chapter links. Guide font controls use a local preference only.
+
+Evidence: ignored `data/guide-review/browser-report.json`, `verify_guide.py`, desktop/mobile screenshots, and `guide-print.pdf`. Existing workflow reports remain under `data/`. Manual screen-reader conformance, actual public Access deployment and Mom usability remain follow-up; no claim that most agency operations are complete.

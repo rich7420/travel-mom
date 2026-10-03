@@ -9,7 +9,8 @@ A **case-based, guided, proactive travel-agency copilot** built for a non-techni
 Reviewed on 2026-10-03 against the running v0.8.1 checkout:
 
 - [Developer architecture](docs/DEVELOPER_ARCHITECTURE.md) — English implementation map, data flows, setup, and operational limits.
-- [User guide draft](docs/USER_GUIDE_ZH_TW_DRAFT.md) — Traditional Chinese instructions matching the current Mom Mode, including known workarounds.
+- [User guide draft](docs/USER_GUIDE_ZH_TW_DRAFT.md) — Traditional Chinese source for the [in-web guide](http://127.0.0.1:8001/static/guide.html), accessible from Mom Mode and its task dialogs.
+- [Workflow coverage check](docs/WORKFLOW_COVERAGE_ZH_TW.md) — supported daily tasks, operational gaps and concrete next increments.
 - [Current review and improvement direction](docs/REVIEW_AND_DIRECTION_ZH_TW.md) — verified findings, travel-agency workflow gaps, priorities, and acceptance criteria.
 
 The review preview runs at <http://127.0.0.1:8001/> with a separate local database because port 8000 is occupied by another checkout. OpenClaw, LINE, and Telegram are disabled in this preview.
@@ -179,7 +180,14 @@ python scripts/run_v06_demo.py
 python scripts/run_v07_demo.py
 ```
 
-Executed results are in [TEST_REPORT_V081.md](docs/TEST_REPORT_V081.md).
+The guide is a checked-in static asset generated from the Traditional Chinese manual. After changing the manual or guide template, regenerate it; the check below and pytest catch stale output. The renderer is a development dependency, not a runtime requirement.
+
+```bash
+python scripts/build_user_guide.py
+python scripts/build_user_guide.py --check
+```
+
+Historical results are in [TEST_REPORT_V081.md](docs/TEST_REPORT_V081.md); current guide and UI checks are in [design QA](design/qa.md).
 
 ## Production boundaries
 

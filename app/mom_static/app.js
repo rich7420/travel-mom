@@ -99,8 +99,9 @@ async function api(path, options = {}) {
   return body;
 }
 
-function openSheet(title, html, resetScroll = true) {
+function openSheet(title, html, resetScroll = true, helpSection = 'start') {
   sheetTitle.textContent = title;
+  $('#sheetHelp').href = `/static/guide.html#${helpSection}`;
   sheetBody.innerHTML = html;
   if (!sheet.open) sheet.showModal();
   if (resetScroll) $('.sheet').scrollTop = 0;
@@ -265,7 +266,7 @@ async function openCase(caseId) {
       ['add-manual','＋ 錄入供應商方案'], ['flight-search','查機票'], ['hotel-search','查飯店'], ['customer-reply','回覆這位客人'],
     ].map(([action,label])=>`<button class="secondary-button full" type="button" data-action="${action}" data-case-id="${escapeHtml(c.id)}">${label}</button>`).join('');
     const selections = (data.selections || []).map(option=>`<div class="notice-card ${option.usable?'ok':'warn'}"><b>已選${option.kind==='flight'?'機票':'住宿'}：</b>${escapeHtml(option.title)}${option.usable?'':`<p>${escapeHtml(option.blockers.join('；'))}</p>`}</div>`).join('');
-    openSheet(`${c.customer_name} · ${c.destination || '旅行案件'}`, `<div class="notice-card"><b>下一步：${escapeHtml(a.label)}</b><br><span class="muted">${escapeHtml(a.reason)}</span></div><div class="form-grid"><div><b>日期</b><p>${escapeHtml(c.depart_date || '未定')} ${c.return_date ? `→ ${escapeHtml(c.return_date)}` : ''}</p></div><div><b>旅客</b><p>${c.adults} 大人、${c.children} 小孩、${c.infants || 0} 嬰兒${c.children?`<br>小孩年齡：${escapeHtml(c.children_ages?.join('、') || '待補齊')}`:''}</p></div><div><b>預算</b><p>${c.budget_twd !== null ? `NT$ ${Number(c.budget_twd).toLocaleString()}` : '尚未設定'}</p></div><div><b>偏好與備註</b><p>${escapeHtml(c.notes || '尚未填寫')}</p></div></div>${selections}<div class="stack">${buttons}</div>`);
+    openSheet(`${c.customer_name} · ${c.destination || '旅行案件'}`, `<div class="notice-card"><b>下一步：${escapeHtml(a.label)}</b><br><span class="muted">${escapeHtml(a.reason)}</span></div><div class="form-grid"><div><b>日期</b><p>${escapeHtml(c.depart_date || '未定')} ${c.return_date ? `→ ${escapeHtml(c.return_date)}` : ''}</p></div><div><b>旅客</b><p>${c.adults} 大人、${c.children} 小孩、${c.infants || 0} 嬰兒${c.children?`<br>小孩年齡：${escapeHtml(c.children_ages?.join('、') || '待補齊')}`:''}</p></div><div><b>預算</b><p>${c.budget_twd !== null ? `NT$ ${Number(c.budget_twd).toLocaleString()}` : '尚未設定'}</p></div><div><b>偏好與備註</b><p>${escapeHtml(c.notes || '尚未填寫')}</p></div></div>${selections}<div class="stack">${buttons}</div>`,true,'new-case');
   } catch (err) { if (err instanceof ReauthenticationError) return; showToast(friendlyError(err)); }
 }
 
@@ -342,7 +343,7 @@ async function openEditCase(caseId) {
       <label><span>偏好與備註</span><textarea name="notes" rows="3">${escapeHtml(c.notes || '')}</textarea></label>
       <label><span>案件進度</span><select name="status">${Object.entries(statuses).map(([value,label])=>`<option value="${value}" ${c.status===value?'selected':''}>${label}</option>`).join('')}</select></label>
       <p class="muted">變更日期、目的地或旅客後，原方案會要求重新查價。標記已確認前請核對供應商正式確認。</p>
-      <button class="primary-button full" type="submit">儲存案件需求</button></form>`);
+      <button class="primary-button full" type="submit">儲存案件需求</button></form>`,true,'edit-case');
   } catch (err) { if (err instanceof ReauthenticationError) return; showToast(friendlyError(err)); }
 }
 async function submitCaseEdit(form) {
@@ -369,7 +370,7 @@ async function openFlightSearch(caseId='') {
       <label><span>最重要的偏好</span><textarea name="notes" rows="3" placeholder="例如：含托運行李、不要太早">${escapeHtml(c?.notes || '')}</textarea></label>
       <div class="notice-card">${state.openclawEnabled?'可建立官網查詢。':'目前可保存查詢條件；實際價格可用下方「錄入人工查價」保存。'} 所有方案都需在訂購前再次確認。</div>
       <button class="primary-button full" type="submit">${state.openclawEnabled?'開始查官方網站':'保存查價條件'}</button><button class="secondary-button full" type="button" data-action="add-manual" data-kind="flight" data-case-id="${escapeHtml(caseId)}">＋ 錄入人工查價</button>
-      ${caseId?`<button class="secondary-button full" type="button" data-action="edit-case" data-case-id="${escapeHtml(caseId)}">需求有變？先修改案件</button>`:''}</form>`);
+      ${caseId?`<button class="secondary-button full" type="button" data-action="edit-case" data-case-id="${escapeHtml(caseId)}">需求有變？先修改案件</button>`:''}</form>`,true,'search');
   } catch (err) { if (err instanceof ReauthenticationError) return; showToast(friendlyError(err)); }
 }
 async function submitFlightSearch(form) {
@@ -397,7 +398,7 @@ async function openHotelSearch(caseId='') {
       <label><span>偏好</span><textarea name="notes" rows="3" placeholder="例如：近車站、安靜、兩張床">${escapeHtml(c?.notes || '')}</textarea></label>
       <div class="notice-card">${state.openclawEnabled?'可查已核准的飯店官網。':'目前可保存條件，或直接錄入供應商提供的房價。'} 第一次使用獨立官網需要管理員確認。</div>
       <button class="primary-button full" type="submit">${state.openclawEnabled?'開始查飯店官網':'保存查價條件'}</button><button class="secondary-button full" type="button" data-action="add-manual" data-kind="hotel" data-case-id="${escapeHtml(caseId)}">＋ 錄入人工查價</button>
-      ${caseId?`<button class="secondary-button full" type="button" data-action="edit-case" data-case-id="${escapeHtml(caseId)}">需求有變？先修改案件</button>`:''}</form>`);
+      ${caseId?`<button class="secondary-button full" type="button" data-action="edit-case" data-case-id="${escapeHtml(caseId)}">需求有變？先修改案件</button>`:''}</form>`,true,'search');
   } catch (err) { if (err instanceof ReauthenticationError) return; showToast(friendlyError(err)); }
 }
 async function submitHotelSearch(form) {
@@ -424,7 +425,7 @@ async function openManualOption(caseId='', kind='flight') {
       ${field('實際查詢／收到報價時間','observed_at',localDateTime(),'type="datetime-local" required')}${field('供應商報價有效至（不確定可留白）','valid_until','','type="datetime-local"')}
       <label class="checkbox-pill"><input type="checkbox" name="confirmed_for_case" required>我已確認日期與所有旅客符合此案件，且以上是實際查到的總價。</label>
       <p class="muted">這會標示為人工錄入，保存後可比較與選取；不會訂購或保留機位／房間。</p>
-      <button class="primary-button full" type="submit">保存這個方案</button></form>`);
+      <button class="primary-button full" type="submit">保存這個方案</button></form>`,true,'manual-options');
   } catch (err) { if (err instanceof ReauthenticationError) return; showToast(friendlyError(err)); }
 }
 async function submitManualOption(form) {
@@ -447,7 +448,7 @@ async function openCaseOptions(caseId) {
       return rows.length?`<h3>${kind==='flight'?'機票方案':'飯店方案'}</h3>${rows.map(option=>renderOptionCard(option,caseId,selected.get(kind)===option.id)).join('')}`:'';
     }).join('');
     const missing = data.selections.filter(selection=>!data.options.some(option=>option.id===selection.id));
-    openSheet(`${data.case.customer_name} · 比較與選方案`, `<div class="notice-card">每次可選一個機票與一個飯店方案。不同幣別分開比較，選取不代表訂購完成。</div><div class="stack"><button class="secondary-button full" type="button" data-action="add-manual" data-case-id="${escapeHtml(caseId)}">＋ 錄入另一個方案</button>${groups || '<div class="empty-state">還沒有實際價格。先錄入供應商提供的方案，或查看官網查詢結果。</div>'}${missing.map(option=>renderOptionCard(option,caseId,true)).join('')}<button class="primary-button full" type="button" data-action="customer-reply" data-case-id="${escapeHtml(caseId)}">${data.can_draft_offer?'整理已選方案回客人':'先整理需求回客人'}</button><button class="secondary-button full" type="button" data-action="open-case" data-case-id="${escapeHtml(caseId)}">回案件</button></div>`);
+    openSheet(`${data.case.customer_name} · 比較與選方案`, `<div class="notice-card">每次可選一個機票與一個飯店方案。不同幣別分開比較，選取不代表訂購完成。</div><div class="stack"><button class="secondary-button full" type="button" data-action="add-manual" data-case-id="${escapeHtml(caseId)}">＋ 錄入另一個方案</button>${groups || '<div class="empty-state">還沒有實際價格。先錄入供應商提供的方案，或查看官網查詢結果。</div>'}${missing.map(option=>renderOptionCard(option,caseId,true)).join('')}<button class="primary-button full" type="button" data-action="customer-reply" data-case-id="${escapeHtml(caseId)}">${data.can_draft_offer?'整理已選方案回客人':'先整理需求回客人'}</button><button class="secondary-button full" type="button" data-action="open-case" data-case-id="${escapeHtml(caseId)}">回案件</button></div>`,true,'compare');
   } catch (err) { if (err instanceof ReauthenticationError) return; showToast(friendlyError(err)); }
 }
 async function selectCaseOption(el) {
@@ -475,14 +476,14 @@ async function openSearchProgress(kind,runId,keepScroll=false) {
       results = (detail.comparison?.currency_groups || []).map(group=>`<div class="notice-card"><b>${escapeHtml(group.currency)} 官網候選方案</b>${group.ranked.map(row=>`<p>${escapeHtml(row.airline_name || row.hotel_name)} · ${escapeHtml(row.option.option_id)} · ${escapeHtml(group.currency)} ${Number(row.option.total_amount).toLocaleString()}</p>`).join('')}</div>`).join('') + '<p class="muted">此查詢未綁定案件。請從案件建立查詢，以保存選案與客戶回覆。</p>';
     }
     const start = state.openclawEnabled && !['running','completed'].includes(p.status) ? `<button class="secondary-button full" type="button" data-action="start-search" data-kind="${kind}" data-run-id="${escapeHtml(runId)}">開始／重試自動查詢</button>` : '';
-    openSheet(kind==='flight'?'機票查價進度與結果':'飯店查價進度與結果',renderProgressCard(p)+start+results,!keepScroll);
+    openSheet(kind==='flight'?'機票查價進度與結果':'飯店查價進度與結果',renderProgressCard(p)+start+results,!keepScroll,'search');
     if(p.status==='running')startPolling(kind,runId);
   } catch(err) { if (err instanceof ReauthenticationError) return;showToast(friendlyError(err));}
 }
 function startPolling(kind,runId){const key=`${kind}:${runId}`;if(state.activePollers.has(key))return;const id=setInterval(async()=>{try{const p=await api(`/api/mom/search-progress/${kind}/${encodeURIComponent(runId)}`);if(sheet.open && sheetBody.querySelector(`[data-run-id="${CSS.escape(runId)}"]`)) await openSearchProgress(kind,runId,true);if(p.status!=='running'){clearInterval(id);state.activePollers.delete(key);loadHome();}}catch{clearInterval(id);state.activePollers.delete(key);}},3500);state.activePollers.set(key,id);}
 
 function openCustomerReply(caseId='') {
-  openSheet('幫您整理客戶回覆', `<form id="replyForm" class="form-grid"><label><span>案件（可不選）</span><select name="case_id">${selectedCaseOptions(caseId)}</select></label><label><span>客人說什麼？</span><textarea name="incoming_text" rows="6" placeholder="直接貼客人的 LINE 訊息就好…" required></textarea></label><label><span>語氣</span><select name="tone"><option>專業、親切、簡潔</option><option>比較口語、自然</option><option>正式、穩重</option></select></label><button class="primary-button full" type="submit">先幫我寫草稿</button><p class="muted">只會產生草稿，不會直接傳給客人。</p></form>`);
+  openSheet('幫您整理客戶回覆', `<form id="replyForm" class="form-grid"><label><span>案件（可不選）</span><select name="case_id">${selectedCaseOptions(caseId)}</select></label><label><span>客人說什麼？</span><textarea name="incoming_text" rows="6" placeholder="直接貼客人的 LINE 訊息就好…" required></textarea></label><label><span>語氣</span><select name="tone"><option>專業、親切、簡潔</option><option>比較口語、自然</option><option>正式、穩重</option></select></label><button class="primary-button full" type="submit">先幫我寫草稿</button><p class="muted">只會產生草稿，不會直接傳給客人。</p></form>`,true,'reply');
 }
 
 async function submitCustomerReply(form) {

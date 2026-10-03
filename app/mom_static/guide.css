@@ -1,0 +1,65 @@
+.guide-page { overflow-wrap:anywhere; }
+.guide-header { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; padding:18px max(24px,calc((100vw - 1200px)/2)); border-bottom:1px solid var(--line); }
+.guide-page a { color:var(--accent-dark); text-decoration-thickness:1px; text-underline-offset:4px; }
+.guide-header a { text-decoration:none; }
+.guide-brand { display:flex; flex-wrap:wrap; align-items:center; gap:12px; min-height:44px; font-weight:700; color:var(--ink)!important; }
+.guide-brand span { border-left:1px solid var(--line); padding-left:12px; font-size:.8rem; font-weight:500; color:var(--muted); }
+.guide-shell { max-width:1200px; padding:32px 24px; margin:auto; }
+.guide-intro { padding:32px; border-radius:16px; background:var(--ink); color:white; }
+.guide-intro h1 { font-size:1.7rem; letter-spacing:-.03em; margin-bottom:12px; }
+.guide-intro p { max-width:850px; margin-bottom:12px; }
+.guide-intro p:first-of-type { color:#d8c5a5; font-size:.8rem; }
+.guide-intro p:last-child { margin-bottom:0; }
+.guide-tools { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:end; gap:16px; padding:20px 0 12px; }
+.guide-fonts { display:flex; flex-wrap:wrap; gap:8px; }
+.guide-fonts legend { font-size:.8rem; color:var(--muted); margin-bottom:6px; }
+.guide-fonts button { min-width:64px; min-height:44px; padding:8px 12px; border:1px solid var(--line); border-radius:8px; background:#fff; color:var(--ink); }
+.guide-fonts button[aria-pressed="true"] { border-color:var(--accent); background:var(--soft); color:var(--accent-dark); }
+.guide-tab-note { color:var(--muted); font-size:.85rem; margin:16px 0 24px; }
+.guide-layout { display:grid; grid-template-columns:260px minmax(0,1fr); gap:32px; align-items:start; }
+.guide-contents { position:sticky; top:20px; max-height:calc(100vh - 40px); overflow:auto; border:1px solid var(--line); border-radius:12px; background:#fff; padding:12px; }
+.guide-contents summary { padding:10px; min-height:44px; font-weight:650; cursor:pointer; }
+.guide-contents ol { list-style:none; padding:0; margin:8px 0 0; }
+.guide-contents a { display:flex; align-items:center; gap:10px; min-height:48px; padding:10px; font-size:.85rem; border-radius:8px; text-decoration:none; color:var(--ink); }
+.guide-contents a:hover { background:var(--soft); }
+.guide-contents a span { font-variant-numeric:tabular-nums; font-size:.75rem; color:var(--muted); }
+.guide-chapter { scroll-margin-top:24px; padding:26px; background:white; border:1px solid var(--line); border-radius:12px; margin-bottom:20px; }
+.guide-chapter h2 { font-size:1.2rem; letter-spacing:-.02em; padding-bottom:14px; margin-bottom:18px; border-bottom:1px solid var(--line); }
+.guide-chapter h3 { font-size:1rem; margin:28px 0 10px; }
+.guide-chapter p,.guide-chapter li { line-height:1.8; }
+.guide-chapter li { padding-left:4px; margin:10px 0; }
+.guide-chapter ol,.guide-chapter ul { padding-left:26px; }
+.guide-chapter > :last-child { margin-bottom:0; }
+.guide-chapter code { background:#f2eee7; border-radius:4px; padding:2px 4px; font-size:.9em; }
+.guide-chapter table { border-collapse:collapse; width:100%; font-size:.9rem; }
+.guide-chapter th,.guide-chapter td { border-bottom:1px solid var(--line); padding:12px 8px; vertical-align:top; text-align:left; }
+.guide-chapter th { background:var(--bg); }
+.guide-chapter th:first-child,.guide-chapter td:first-child { width:35%; }
+.guide-footer { padding:24px 0; border-top:1px solid var(--line); color:var(--muted); font-size:.85rem; }
+.guide-footer a { display:inline-flex; align-items:center; min-height:44px; }
+.guide-footer p { margin:8px 0 0; }
+.guide-skip { position:absolute; left:16px; top:-100px; min-height:44px; padding:10px 14px; background:white; z-index:100; }
+.guide-skip:focus { top:12px; }
+@media(max-width:900px) {
+  .guide-layout { grid-template-columns:minmax(0,1fr); gap:20px; }
+  .guide-contents { position:static; max-height:none; }
+}
+@media(max-width:560px) {
+  .guide-header { padding:12px 16px; }
+  .guide-shell { padding:20px 16px; }
+  .guide-intro { padding:24px 20px; }
+  .guide-intro h1 { font-size:1.4rem; }
+  .guide-chapter { padding:20px 16px; }
+}
+@media print {
+  .guide-header,.guide-tools,.guide-tab-note,.guide-contents,.guide-footer,.guide-skip { display:none!important; }
+  html[data-font] { --font:12pt; }
+  .guide-page,.guide-intro,.guide-chapter { background:white; color:black; }
+  .guide-shell,.guide-intro,.guide-chapter { padding:0; max-width:none; }
+  .guide-intro { border-radius:0; }
+  .guide-intro p:first-of-type { color:black; }
+  .guide-layout { display:block; }
+  .guide-chapter { border:0; margin:24pt 0; }
+  .guide-chapter h2,.guide-chapter h3 { break-after:avoid; }
+  .guide-chapter table tr { break-inside:avoid; }
+}

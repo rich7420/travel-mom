@@ -20,6 +20,7 @@
       <div class="top-actions">
         <span id="headerIdentity" class="header-identity hidden"></span>
         <span id="connectionBadge" class="status-badge status-neutral">連線中</span>
+        <a class="guide-link" href="/static/guide.html" target="_blank" rel="noopener">使用指南 <small>另開分頁 ↗</small></a>
         <button class="icon-text-button" type="button" data-action="open-settings">設定</button>
       </div>
     </header>
@@ -118,6 +119,7 @@
           <button class="secondary-button full" id="tokenSettingsButton" type="button" data-action="open-token">連線密碼</button>
           <div id="loginSettings" class="login-settings hidden"><p id="loginIdentity"></p><button class="secondary-button full" type="button" data-action="logout">登出</button></div>
         </form>
+        <a class="settings-guide-link secondary-button" href="/static/guide.html#setup" target="_blank" rel="noopener">使用指南（另開分頁） ↗</a>
         <details class="admin-link" id="adminTools"><summary>管理員工具</summary><p>Browser Lab、官網信任、系統準備度等工程功能放在另一個工作台。</p><a href="/admin">開啟管理員工作台</a></details>
       </section>
     </main>
@@ -134,7 +136,7 @@
     </nav>
   </div>
 
-  <dialog id="sheet" class="sheet-dialog"><div class="sheet"><div class="sheet-handle"></div><div class="sheet-head"><h2 id="sheetTitle">處理工作</h2><button type="button" class="close-button" data-action="close-sheet" aria-label="關閉">×</button></div><div id="sheetBody"></div></div></dialog>
+  <dialog id="sheet" class="sheet-dialog"><div class="sheet"><div class="sheet-handle"></div><div class="sheet-head"><h2 id="sheetTitle">處理工作</h2><a id="sheetHelp" class="guide-link" href="/static/guide.html#start" target="_blank" rel="noopener">操作說明 <small>另開分頁 ↗</small></a><button type="button" class="close-button" data-action="close-sheet" aria-label="關閉">×</button></div><div id="sheetBody"></div></div></dialog>
   <dialog id="onboardingDialog" class="center-dialog"><form id="onboardingForm" method="dialog" class="dialog-card"><p class="section-kicker">第一次使用</p><h2>先幫您記住兩件事</h2><p class="muted">之後查價就不用每次重填。</p><label><span>平常從哪個機場出發？</span><select id="onboardingOrigin"><option value="TPE">桃園 TPE</option><option value="TSA">松山 TSA</option><option value="KHH">高雄 KHH</option><option value="RMQ">台中 RMQ</option></select></label><fieldset><legend>字體大小</legend><div class="radio-row"><label><input type="radio" name="onboardingFont" value="large" checked>大字</label><label><input type="radio" name="onboardingFont" value="xlarge">特大字</label><label><input type="radio" name="onboardingFont" value="normal">一般</label></div></fieldset><button class="primary-button full" type="submit">開始使用</button></form></dialog>
   <dialog id="loginDialog" class="center-dialog" aria-labelledby="loginTitle" aria-describedby="loginMessage"><div class="dialog-card"><h2 id="loginTitle">請重新登入</h2><p id="loginMessage">登入已過期或暫時無法確認，案件會保留。重新登入後可繼續處理。</p><button class="primary-button full" type="button" data-action="login">重新登入</button></div></dialog>
   <dialog id="tokenDialog" class="center-dialog"><form id="tokenForm" method="dialog" class="dialog-card"><h2>連線密碼</h2><p class="muted">只有系統啟用管理密碼時才需要。密碼只存在這個瀏覽器分頁，不會寫入案件。</p><label><span>管理密碼</span><input id="tokenInput" type="password" autocomplete="off"></label><div class="button-row"><button class="secondary-button" type="button" data-action="clear-token">清除</button><button class="primary-button" type="submit">套用</button></div></form></dialog>

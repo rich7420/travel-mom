@@ -55,7 +55,7 @@ def headers(private, **claims):
     return {'Cf-Access-Jwt-Assertion':token(private, **claims), 'Origin':'https://travel.example.com'}
 
 
-@pytest.mark.parametrize('path', ['/', '/static/app.js', '/admin', '/admin-static/app.js', '/health',
+@pytest.mark.parametrize('path', ['/', '/static/app.js', '/static/guide.html', '/static/guide.css', '/static/guide.js', '/admin', '/admin-static/app.js', '/health',
                                    '/docs', '/redoc', '/openapi.json', '/api/cases', '/unknown-route',
                                    '/webhooks/line', '/webhooks/line/'])
 def test_access_defaults_to_protected_including_unknown_paths(access_client, path):
@@ -81,6 +81,10 @@ def test_roles_and_session_do_not_expose_tokens_or_config(access_client, signing
     assert access_client.get('/api/cases',headers=mom).status_code == 200
     assert access_client.get('/health',headers=mom).status_code == 200
     assert access_client.get('/static/app.js',headers=mom).status_code == 200
+    for asset in ['guide.html', 'guide.css', 'guide.js']:
+        response = access_client.get(f'/static/{asset}', headers=mom)
+        assert response.status_code == 200
+        assert "'unsafe-inline'" not in response.headers['content-security-policy']
     for path in ['/admin','/admin-static/app.js','/api/system/readiness','/api/browser/tasks','/api/browser/lab/summary','/api/approvals','/api/hotels/site-grants','/api/mom/skill-feedback/summary','/api/unknown']:
         assert access_client.get(path,headers=mom).status_code == 403
     assert access_client.post('/api/browser/tasks',headers=mom,json={}).status_code == 403
