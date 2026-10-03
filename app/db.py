@@ -228,6 +228,23 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_hotel_search_runs_case ON hotel_search_runs(case_id, created_at);
             CREATE INDEX IF NOT EXISTS idx_skill_feedback_skill ON skill_feedback(skill_key, created_at);
             CREATE INDEX IF NOT EXISTS idx_skill_feedback_case ON skill_feedback(case_id, created_at);
+
+            CREATE TABLE IF NOT EXISTS case_options (
+              id TEXT PRIMARY KEY,
+              case_id TEXT NOT NULL REFERENCES trip_cases(id),
+              kind TEXT NOT NULL,
+              payload_json TEXT NOT NULL,
+              created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_case_options_case ON case_options(case_id, created_at);
+            CREATE TABLE IF NOT EXISTS case_option_selections (
+              case_id TEXT NOT NULL REFERENCES trip_cases(id),
+              kind TEXT NOT NULL,
+              option_id TEXT NOT NULL,
+              snapshot_json TEXT NOT NULL,
+              selected_at TEXT NOT NULL,
+              PRIMARY KEY(case_id, kind)
+            );
             """
         )
         # Upgrade v0.4/v0.5 databases in place.
@@ -238,8 +255,11 @@ def init_db() -> None:
         _ensure_column(db, "browser_tasks", "search_run_id", "TEXT")
         _ensure_column(db, "browser_tasks", "parent_task_id", "TEXT")
         _ensure_column(db, "browser_tasks", "parent_option_id", "TEXT")
+        _ensure_column(db, "browser_tasks", "result_attempt_id", "TEXT")
         _ensure_column(db, "browser_attempts", "result_status", "TEXT")
         _ensure_column(db, "skill_feedback", "skill_hash", "TEXT")
+        _ensure_column(db, "trip_cases", "infants", "INTEGER NOT NULL DEFAULT 0")
+        _ensure_column(db, "trip_cases", "children_ages_json", "TEXT")
         db.execute(
             "INSERT OR IGNORE INTO schema_migrations(version,name,applied_at) VALUES(?,?,datetime('now'))",
             (701, "v0.7.1 reviewed hardening"),
@@ -247,6 +267,10 @@ def init_db() -> None:
         db.execute(
             "INSERT OR IGNORE INTO schema_migrations(version,name,applied_at) VALUES(?,?,datetime('now'))",
             (801, "v0.8.1 Mom Mode unified UX and Skill feedback evidence"),
+        )
+        db.execute(
+            "INSERT OR IGNORE INTO schema_migrations(version,name,applied_at) VALUES(?,?,datetime('now'))",
+            (802, "Web case workflow and manual supplier options"),
         )
         db.commit()
 

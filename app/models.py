@@ -5,7 +5,7 @@ from enum import StrEnum
 from typing import Any, Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 def now_iso() -> str:
@@ -26,7 +26,8 @@ class CaseStatus(StrEnum):
     CLOSED = "closed"
 
 
-class TripCaseCreate(BaseModel):
+class TripCaseData(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
     customer_name: str = Field(min_length=1, max_length=80)
     destination: str | None = None
     origin: str | None = "TPE"
@@ -34,11 +35,44 @@ class TripCaseCreate(BaseModel):
     return_date: date | None = None
     adults: int = Field(default=1, ge=1, le=50)
     children: int = Field(default=0, ge=0, le=50)
+    infants: int = Field(default=0, ge=0, le=20)
+    children_ages: list[int] | None = None
     budget_twd: int | None = Field(default=None, ge=0)
     notes: str = ""
 
 
-class TripCase(TripCaseCreate):
+class TripCaseCreate(TripCaseData):
+    @model_validator(mode="after")
+    def validate_trip(self) -> "TripCaseCreate":
+        if self.budget_twd is not None and self.budget_twd > 1_000_000_000:
+            raise ValueError("總預算不可超過 10 億")
+        if self.depart_date and self.return_date and self.return_date < self.depart_date:
+            raise ValueError("回程日期不可早於出發日期")
+        if self.infants > self.adults:
+            raise ValueError("嬰兒人數不可多於成人，特殊情況請人工處理")
+        if self.children_ages is not None:
+            if len(self.children_ages) != self.children or any(age < 0 or age > 17 for age in self.children_ages):
+                raise ValueError("請填每位小孩的年齡（0–17 歲），人數須與小孩人數相同")
+        return self
+
+
+class TripCasePatch(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    customer_name: str | None = Field(default=None, min_length=1, max_length=80)
+    destination: str | None = None
+    origin: str | None = None
+    depart_date: date | None = None
+    return_date: date | None = None
+    adults: int | None = Field(default=None, ge=1, le=50)
+    children: int | None = Field(default=None, ge=0, le=50)
+    infants: int | None = Field(default=None, ge=0, le=20)
+    children_ages: list[int] | None = None
+    budget_twd: int | None = Field(default=None, ge=0, le=1_000_000_000)
+    notes: str | None = None
+    status: CaseStatus | None = None
+
+
+class TripCase(TripCaseData):
     id: str
     status: CaseStatus = CaseStatus.NEW
     created_at: str
@@ -121,6 +155,7 @@ class BrowserTask(BaseModel):
     result_text: str | None = None
     result_json: dict[str, Any] | None = None
     review_state: str = "not_reviewed"
+    result_attempt_id: str | None = None
     created_at: str
     updated_at: str
 
@@ -161,6 +196,7 @@ class CabinClass(StrEnum):
 
 class FlightSearchRequest(BaseModel):
     case_id: str | None = None
+    case_context: dict[str, Any] | None = None
     airline_codes: list[str] = Field(
         default_factory=lambda: ["CI", "BR", "CX", "JX", "AE", "IT", "EK", "NH"],
         min_length=1,
@@ -174,6 +210,7 @@ class FlightSearchRequest(BaseModel):
     adults: int = Field(default=1, ge=1, le=20)
     children: int = Field(default=0, ge=0, le=20)
     infants: int = Field(default=0, ge=0, le=20)
+    children_ages: list[int] | None = None
     cabin: CabinClass = CabinClass.ECONOMY
     nonstop_preferred: bool = False
     max_total_twd: int | None = Field(default=None, ge=0)
@@ -213,6 +250,8 @@ class FlightSearchRequest(BaseModel):
             self.return_date = None
         if self.infants > self.adults:
             raise ValueError("POC 安全規則：嬰兒人數不可多於成人，特殊情況請人工處理")
+        if self.children_ages is not None and (len(self.children_ages) != self.children or any(age < 0 or age > 17 for age in self.children_ages)):
+            raise ValueError("小孩年齡需介於 0–17 歲，並符合小孩人數")
         return self
 
     @property
@@ -430,6 +469,7 @@ class HotelSiteGrant(BaseModel):
 
 class HotelSearchRequest(BaseModel):
     case_id: str | None = None
+    case_context: dict[str, Any] | None = None
     hotel_name: str = Field(min_length=1, max_length=160)
     official_url: str = Field(min_length=8, max_length=1000)
     checkin_date: date

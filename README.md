@@ -4,6 +4,20 @@ A **case-based, guided, proactive travel-agency copilot** built for a non-techni
 
 > Product rule: **the operator should not have to learn Claude/OpenClaw. The system should learn the travel-agency workflow.**
 
+## Current review and handoff documents
+
+Reviewed on 2026-10-03 against the running v0.8.1 checkout:
+
+- [Developer architecture](docs/DEVELOPER_ARCHITECTURE.md) — English implementation map, data flows, setup, and operational limits.
+- [User guide draft](docs/USER_GUIDE_ZH_TW_DRAFT.md) — Traditional Chinese instructions matching the current Mom Mode, including known workarounds.
+- [Current review and improvement direction](docs/REVIEW_AND_DIRECTION_ZH_TW.md) — verified findings, travel-agency workflow gaps, priorities, and acceptance criteria.
+
+The review preview runs at <http://127.0.0.1:8001/> with a separate local database because port 8000 is occupied by another checkout. OpenClaw, LINE, and Telegram are disabled in this preview.
+
+## Current web workflow increment
+
+OpenClaw is optional. The shared web backend now supports consecutive customer intake, validated case edits with infant/child-age preservation, saved search requirements, manual supplier offers, comparison and persistent selection, and editable/copyable deterministic customer drafts. Expired, demo, changed-case or replaced offers cannot supply active quote amounts. Internal manual supplier/source metadata stays out of drafts. See the current handoff documents for operating limits; versioned quotes, deadlines and booking/pretrip delivery are next.
+
 ## What changed in v0.8.1
 
 v0.8.1 is rebuilt from the last verified v0.7.1 baseline and uses the **same core database**. It does not create a second UX database.
@@ -103,12 +117,12 @@ Independent hotels require an explicit human-approved exact-domain `HotelSiteGra
 ## Run locally
 
 ```bash
-cd mom-travel-desk-poc-v0.8.1
+cd /path/to/your/checkout
 cp .env.example .env
 python -m venv .venv
 source .venv/bin/activate
 pip install -e '.[dev]' -c constraints-tested.txt
-uvicorn app.main:app --reload
+uvicorn app.main:app --reload --host 127.0.0.1 --env-file .env
 ```
 
 Open:

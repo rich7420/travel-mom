@@ -11,6 +11,8 @@ def validate_runtime_settings() -> None:
         raise RuntimeError("TRAVEL_DESK_ADMIN_TOKEN is required when APP_ENV=production")
     if settings.max_request_body_bytes < 16_384:
         raise RuntimeError("MAX_REQUEST_BODY_BYTES is unreasonably small")
+    if settings.quote_max_age_hours <= 0:
+        raise RuntimeError("QUOTE_MAX_AGE_HOURS must be positive")
 
 def presented_admin_token(request: Request) -> str:
     direct=request.headers.get("x-travel-desk-admin-token","").strip()

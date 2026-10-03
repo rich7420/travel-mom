@@ -3,12 +3,13 @@ from datetime import date
 from typing import Any
 from app.models import CaseStatus,MomIntentResponse,MomIntentSuggestion,MomIntentRequest
 from app.repositories import approval_repo,browser_task_repo,case_repo,flight_search_run_repo,hotel_search_run_repo,preferences_repo
+from app.services.case_workflow import case_workflow
 
 def _friendly_case_status(status:str)->str:
     return {"new":"剛建立","intake":"確認需求中","quoting":"查價與報價中","booking":"準備訂購","confirmed":"已確認","travelling":"旅途中","closed":"已完成"}.get(status,"處理中")
 def _days_until(value)->int|None:return (value-date.today()).days if value else None
 
-def next_best_action(case)->dict[str,Any]:
+def next_best_action(case, workflow=None)->dict[str,Any]:
     flight_runs=flight_search_run_repo.list(case_id=case.id,limit=3);hotel_runs=hotel_search_run_repo.list(case_id=case.id,limit=3);days=_days_until(case.depart_date)
     if case.status==CaseStatus.CLOSED:return {"kind":"case","label":"查看已完成案件","reason":"這個案件已完成","case_id":case.id}
     if case.status==CaseStatus.TRAVELLING:return {"kind":"case","label":"查看旅途中事項","reason":"客人目前正在旅行","case_id":case.id}
@@ -17,6 +18,11 @@ def next_best_action(case)->dict[str,Any]:
         return {"kind":"case","label":"查看已確認內容","reason":"訂購已確認，可準備後續資料","case_id":case.id}
     if not case.destination:return {"kind":"case","label":"補上目的地","reason":"先把客人的目的地確認好","case_id":case.id}
     if not case.depart_date:return {"kind":"case","label":"補上出發日期","reason":"有日期後才能可靠查價","case_id":case.id}
+    workflow = workflow if workflow is not None else case_workflow(case.id)
+    if workflow["can_draft_offer"]:
+        return {"kind":"customer_reply","label":"整理方案回客人","reason":"已選定參考方案，可以整理回覆草稿","case_id":case.id}
+    if workflow["options"] or workflow["selections"]:
+        return {"kind":"case_options","label":"比較與選方案","reason":"核對來源、價格與條件，再選定參考方案","case_id":case.id}
     if not flight_runs:return {"kind":"flight_search","label":"先查機票","reason":"這個案件還沒有機票查價紀錄","case_id":case.id}
     latest=flight_runs[0]
     if not latest.selected_option_id:return {"kind":"flight_run","label":"看機票方案","reason":"已有查價紀錄，但還沒選方案","case_id":case.id,"run_id":latest.id}
@@ -43,16 +49,20 @@ def search_run_progress(kind:str,run_id:str)->dict[str,Any]:
 
 def build_mom_home()->dict[str,Any]:
     prefs=preferences_repo.get();cases=case_repo.list();pending=approval_repo.list("pending");cards=[]
-    for case in cases[:20]:
-        action=next_best_action(case);days=_days_until(case.depart_date);urgency=0
+    for case in cases:
+        days=_days_until(case.depart_date);urgency=0
         if days is not None:
             if 0<=days<=2:urgency=100
             elif 3<=days<=7:urgency=70
             elif days<0 and case.status not in {CaseStatus.CLOSED,CaseStatus.TRAVELLING}:urgency=90
         if case.status in {CaseStatus.NEW,CaseStatus.INTAKE,CaseStatus.QUOTING}:urgency+=15
-        cards.append({"id":case.id,"customer_name":case.customer_name,"destination":case.destination or "目的地未定","date_label":f"{case.depart_date.isoformat()} → {case.return_date.isoformat() if case.return_date else '回程未定'}" if case.depart_date else "日期未定","status":_friendly_case_status(case.status.value),"days_until_departure":days,"next_action":action,"urgency":urgency,"updated_at":case.updated_at})
-    priority=sorted(cards,key=lambda r:(r["urgency"],r["updated_at"]),reverse=True)[:4];recent=cards[:6]
-    fr=[r for r in flight_search_run_repo.list(limit=20) if r.status.value not in {"completed"}][:4];hr=[r for r in hotel_search_run_repo.list(limit=20) if r.status.value not in {"completed"}][:4]
+        cards.append({"id":case.id,"customer_name":case.customer_name,"destination":case.destination or "目的地未定","date_label":f"{case.depart_date.isoformat()} → {case.return_date.isoformat() if case.return_date else '回程未定'}" if case.depart_date else "日期未定","status":_friendly_case_status(case.status.value),"status_code":case.status.value,"days_until_departure":days,"next_action":None,"urgency":urgency,"updated_at":case.updated_at})
+    priority=sorted([row for row in cards if row["status_code"] != "closed"],key=lambda r:(r["urgency"],r["updated_at"]),reverse=True)[:4];recent=cards[:6]
+    case_by_id = {case.id: case for case in cases}
+    for card in priority + recent:
+        if card["next_action"] is None:
+            card["next_action"] = next_best_action(case_by_id[card["id"]])
+    fr=flight_search_run_repo.list(limit=4);hr=hotel_search_run_repo.list(limit=4)
     return {"schema_version":"mom-home-v1","preferences":prefs.model_dump(mode="json"),"counts":{"cases":len(cases),"pending_approvals":len(pending)},"priority":priority,"recent_cases":recent,"resume":recent[0] if recent else None,"searches":{"flight":[search_run_progress("flight",r.id) for r in fr],"hotel":[search_run_progress("hotel",r.id) for r in hr]}}
 
 def infer_mom_intent(req:MomIntentRequest)->MomIntentResponse:

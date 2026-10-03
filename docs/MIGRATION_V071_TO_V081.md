@@ -38,3 +38,9 @@ Then open `/` for Mom Mode and `/admin` for the existing engineering workbench.
 ## Rollback
 
 The old v0.7.1 code can still ignore the newly added tables, but the safest rollback is restoring the pre-v0.8.1 database backup together with the old application package.
+
+## Web workflow migration 802 (2026-10-03)
+
+The current increment adds infant/child-age fields, manual offer and selection tables, and `browser_tasks.result_attempt_id`. Startup is additive and idempotent; back up the database before upgrading. Existing cases are preserved and historical inconsistent dates remain readable and can be repaired using the case edit form.
+
+Historical browser results lack exact producing-attempt provenance and are displayed as demo/unusable for Mom quotations after upgrade, even if they previously came from a live query. Query them again, or record a freshly verified manual supplier offer. Migration does not guess provenance from the most recent attempt. Manual and official quotations without explicit supplier expiry use `QUOTE_MAX_AGE_HOURS` (default 24), independently of the checkout revalidation window.

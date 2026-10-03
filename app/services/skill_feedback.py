@@ -34,5 +34,5 @@ def capture_skill_feedback(data:SkillFeedbackCreate)->SkillFeedbackRecord:
                 if v and trip.customer_name in v:vals[i]=v.replace(trip.customer_name,"[CUSTOMER]");name_redacted=True
             draft_source,final_source,note_source=vals
     draft,a=redact_feedback_text(draft_source);final,b=redact_feedback_text(final_source);note,c=redact_feedback_text(note_source)
-    record=SkillFeedbackRecord(id=new_id("sfb"),skill_key=data.skill_key.strip().lower(),feedback_type=data.feedback_type,case_id=data.case_id,source=data.source,draft_redacted=draft,final_redacted=final,note_redacted=note,skill_hash=_skill_hash(data.skill_key.strip().lower()),edit_ratio=edit_ratio(draft,final),possible_pii=name_redacted or a or b or c,created_at=now_iso())
+    record=SkillFeedbackRecord(id=new_id("sfb"),skill_key=data.skill_key.strip().lower(),feedback_type=data.feedback_type,case_id=data.case_id,source=data.source,draft_redacted=draft,final_redacted=final,note_redacted=note,skill_hash=None if data.source == "web_template" else _skill_hash(data.skill_key.strip().lower()),edit_ratio=edit_ratio(draft,final),possible_pii=name_redacted or a or b or c,created_at=now_iso())
     return skill_feedback_repo.create(record)

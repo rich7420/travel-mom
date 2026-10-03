@@ -362,6 +362,11 @@ class BrowserTaskService:
         return browser_task_repo.create(data)
 
     def create_flight_search(self, req: FlightSearchRequest) -> StructuredFlightTaskPlan:
+        if req.case_id:
+            from app.services.case_workflow import require_case, trip_snapshot
+            req = req.model_copy(update={"case_context": trip_snapshot(require_case(req.case_id))})
+        else:
+            req = req.model_copy(update={"case_context": None})
         run = flight_search_run_repo.create(req)
         tasks: list[BrowserTask] = []
         manual: list[dict] = []
@@ -392,6 +397,11 @@ class BrowserTaskService:
         return StructuredFlightTaskPlan(run=run, tasks=tasks, manual_handoffs=manual, unsupported_airlines=unsupported)
 
     def create_hotel_search(self, req: HotelSearchRequest) -> StructuredHotelTaskPlan:
+        if req.case_id:
+            from app.services.case_workflow import require_case, trip_snapshot
+            req = req.model_copy(update={"case_context": trip_snapshot(require_case(req.case_id))})
+        else:
+            req = req.model_copy(update={"case_context": None})
         if not is_trusted_hotel_url(req.official_url):
             raise ValueError(
                 "此飯店 official_url 尚未信任。若不是內建飯店集團，請先由人類核准 hotel site grant。"
@@ -540,9 +550,12 @@ class BrowserTaskService:
                 status = HotelSearchRunStatus.PLANNED
             hotel_search_run_repo.set_status(task.search_run_id, status)
 
-    def _process_result(self, task: BrowserTask, raw_text: str, degraded: bool = False) -> tuple[BrowserTask, list[str], str | None]:
+    def _process_result(self, task: BrowserTask, raw_text: str, degraded: bool = False, result_attempt_id: str | None = None) -> tuple[BrowserTask, list[str], str | None]:
+        def store_result(*args, **kwargs):
+            return browser_task_repo.update(*args, **kwargs, result_attempt_id=result_attempt_id)
+
         if degraded:
-            updated = browser_task_repo.update(task.id, "degraded", raw_text, review_state="needs_review")
+            updated = store_result(task.id, "degraded", raw_text, review_state="needs_review")
             self._refresh_run_status(updated)
             return updated, ["OpenClaw degraded/fallback response"], "openclaw_degraded"
 
@@ -555,7 +568,7 @@ class BrowserTaskService:
             parsed, errors = validate_flight_search_result(raw_text, task.provider_code, expected_search)
             if parsed is None or errors:
                 diagnostics = "\n\nVALIDATION_ERRORS:\n- " + "\n- ".join(errors or ["unknown validation error"])
-                updated = browser_task_repo.update(
+                updated = store_result(
                     task.id,
                     "needs_review",
                     raw_text + diagnostics,
@@ -566,7 +579,7 @@ class BrowserTaskService:
                 return updated, errors or ["unknown validation error"], None
             final_status = "completed" if parsed.status in {"ok", "no_results", "manual_required"} else "needs_review"
             review_state = "auto_validated" if final_status == "completed" else "needs_review"
-            updated = browser_task_repo.update(
+            updated = store_result(
                 task.id,
                 final_status,
                 raw_text,
@@ -579,11 +592,11 @@ class BrowserTaskService:
 
         if task.expected_schema == "flight-revalidation-v1" and task.provider_code:
             if not task.parent_task_id or not task.parent_option_id:
-                updated = browser_task_repo.update(task.id, "needs_review", raw_text, review_state="needs_review")
+                updated = store_result(task.id, "needs_review", raw_text, review_state="needs_review")
                 return updated, ["revalidation task 缺少 parent_task_id/parent_option_id"], None
             parent = browser_task_repo.get(task.parent_task_id)
             if not parent:
-                updated = browser_task_repo.update(task.id, "needs_review", raw_text, review_state="needs_review")
+                updated = store_result(task.id, "needs_review", raw_text, review_state="needs_review")
                 return updated, ["找不到 parent search task"], None
             _, original_option = _find_option(parent, task.parent_option_id)
             parsed, errors = validate_flight_revalidation_result(
@@ -594,7 +607,7 @@ class BrowserTaskService:
             )
             if parsed is None or errors:
                 diagnostics = "\n\nVALIDATION_ERRORS:\n- " + "\n- ".join(errors or ["unknown validation error"])
-                updated = browser_task_repo.update(
+                updated = store_result(
                     task.id,
                     "needs_review",
                     raw_text + diagnostics,
@@ -604,7 +617,7 @@ class BrowserTaskService:
                 return updated, errors or ["unknown validation error"], None
             final_status = "completed" if parsed.status in {"found", "unavailable", "manual_required"} else "needs_review"
             review_state = "auto_validated" if final_status == "completed" else "needs_review"
-            updated = browser_task_repo.update(
+            updated = store_result(
                 task.id,
                 final_status,
                 raw_text,
@@ -622,13 +635,13 @@ class BrowserTaskService:
                 expected_search = {}
             allowed_domains = hotel_allowed_domains(task.source_url)
             if not allowed_domains:
-                updated = browser_task_repo.update(task.id, "needs_review", raw_text, review_state="needs_review")
+                updated = store_result(task.id, "needs_review", raw_text, review_state="needs_review")
                 self._refresh_run_status(updated)
                 return updated, ["hotel source domain 已失去/缺少 trust grant"], "hotel_domain_untrusted"
             parsed, errors = validate_hotel_search_result(raw_text, expected_search or {}, allowed_domains)
             if parsed is None or errors:
                 diagnostics = "\n\nVALIDATION_ERRORS:\n- " + "\n- ".join(errors or ["unknown validation error"])
-                updated = browser_task_repo.update(
+                updated = store_result(
                     task.id, "needs_review", raw_text + diagnostics,
                     parsed.model_dump(mode="json") if parsed else None, review_state="needs_review"
                 )
@@ -636,7 +649,7 @@ class BrowserTaskService:
                 return updated, errors or ["unknown validation error"], None
             final_status = "completed" if parsed.status in {"ok", "no_results", "manual_required"} else "needs_review"
             review_state = "auto_validated" if final_status == "completed" else "needs_review"
-            updated = browser_task_repo.update(
+            updated = store_result(
                 task.id, final_status, raw_text, parsed.model_dump(mode="json"), review_state=review_state
             )
             self._refresh_run_status(updated)
@@ -645,36 +658,36 @@ class BrowserTaskService:
 
         if task.expected_schema == "hotel-revalidation-v1":
             if not task.parent_task_id or not task.parent_option_id:
-                updated = browser_task_repo.update(task.id, "needs_review", raw_text, review_state="needs_review")
+                updated = store_result(task.id, "needs_review", raw_text, review_state="needs_review")
                 return updated, ["hotel revalidation 缺少 parent_task_id/parent_option_id"], None
             parent = browser_task_repo.get(task.parent_task_id)
             if not parent:
-                updated = browser_task_repo.update(task.id, "needs_review", raw_text, review_state="needs_review")
+                updated = store_result(task.id, "needs_review", raw_text, review_state="needs_review")
                 return updated, ["找不到 parent hotel search task"], None
             _, original_option = _find_hotel_option(parent, task.parent_option_id)
             allowed_domains = hotel_allowed_domains(task.source_url)
             if not allowed_domains:
-                updated = browser_task_repo.update(task.id, "needs_review", raw_text, review_state="needs_review")
+                updated = store_result(task.id, "needs_review", raw_text, review_state="needs_review")
                 return updated, ["hotel source domain 已失去/缺少 trust grant"], "hotel_domain_untrusted"
             parsed, errors = validate_hotel_revalidation_result(
                 raw_text, task.parent_option_id, original_option, allowed_domains
             )
             if parsed is None or errors:
                 diagnostics = "\n\nVALIDATION_ERRORS:\n- " + "\n- ".join(errors or ["unknown validation error"])
-                updated = browser_task_repo.update(
+                updated = store_result(
                     task.id, "needs_review", raw_text + diagnostics,
                     parsed.model_dump(mode="json") if parsed else None, review_state="needs_review"
                 )
                 return updated, errors or ["unknown validation error"], None
             final_status = "completed" if parsed.status in {"found", "unavailable", "manual_required"} else "needs_review"
             review_state = "auto_validated" if final_status == "completed" else "needs_review"
-            updated = browser_task_repo.update(
+            updated = store_result(
                 task.id, final_status, raw_text, parsed.model_dump(mode="json"), review_state=review_state
             )
             blocker = parsed.manual_handoff_reason if parsed.status == "manual_required" else None
             return updated, [], blocker
 
-        updated = browser_task_repo.update(task.id, "needs_review", raw_text, review_state="needs_review")
+        updated = store_result(task.id, "needs_review", raw_text, review_state="needs_review")
         return updated, ["free-text result has no trusted schema"], None
 
     async def run(self, task_id: str) -> BrowserTask:
@@ -707,7 +720,7 @@ class BrowserTaskService:
                 extra_context=context,
                 model=settings.openclaw_browser_model,
             )
-            updated, errors, blocker = self._process_result(task, reply.text, degraded=reply.degraded)
+            updated, errors, blocker = self._process_result(task, reply.text, degraded=reply.degraded, result_attempt_id=attempt.id)
             browser_attempt_repo.finish(
                 attempt.id,
                 outcome=updated.status,
@@ -736,7 +749,7 @@ class BrowserTaskService:
         if not task:
             raise KeyError(task_id)
         attempt = browser_attempt_repo.start(task.id, "lab_ingest", settings.openclaw_browser_profile)
-        updated, errors, auto_blocker = self._process_result(task, data.raw_text, degraded=False)
+        updated, errors, auto_blocker = self._process_result(task, data.raw_text, degraded=False, result_attempt_id=attempt.id)
         browser_attempt_repo.finish(
             attempt.id,
             outcome=updated.status,

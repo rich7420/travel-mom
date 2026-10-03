@@ -45,6 +45,7 @@ class Settings:
     browser_lab_ingest_enabled: bool = _bool("BROWSER_LAB_INGEST_ENABLED", True)
     price_revalidation_max_age_minutes: int = int(os.getenv("PRICE_REVALIDATION_MAX_AGE_MINUTES", "20"))
     price_change_acceptance_threshold_twd: int = int(os.getenv("PRICE_CHANGE_ACCEPTANCE_THRESHOLD_TWD", "0"))
+    quote_max_age_hours: int = int(os.getenv("QUOTE_MAX_AGE_HOURS", "24"))
 
 
 settings = Settings()

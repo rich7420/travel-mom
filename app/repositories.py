@@ -25,6 +25,7 @@ from app.models import (
     HotelSiteTrustStatus,
     TripCase,
     TripCaseCreate,
+    TripCasePatch,
     UserPreferences,
     UserPreferencesPatch,
     SkillFeedbackRecord,
@@ -33,9 +34,12 @@ from app.models import (
     now_iso,
 )
 
+_UNSET = object()
+
 
 def _case_from_row(r) -> TripCase:
     d = dict(r)
+    d["children_ages"] = _loads(d.pop("children_ages_json", None), None)
     d["depart_date"] = date.fromisoformat(d["depart_date"]) if d["depart_date"] else None
     d["return_date"] = date.fromisoformat(d["return_date"]) if d["return_date"] else None
     return TripCase(**d)
@@ -69,14 +73,15 @@ class CaseRepo:
         with connect() as db:
             db.execute(
                 """INSERT INTO trip_cases
-                (id,customer_name,destination,origin,depart_date,return_date,adults,children,budget_twd,notes,status,created_at,updated_at)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (id,customer_name,destination,origin,depart_date,return_date,adults,children,budget_twd,notes,status,created_at,updated_at,infants,children_ages_json)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     case.id, case.customer_name, case.destination, case.origin,
                     case.depart_date.isoformat() if case.depart_date else None,
                     case.return_date.isoformat() if case.return_date else None,
                     case.adults, case.children, case.budget_twd, case.notes,
                     case.status.value, case.created_at, case.updated_at,
+                    case.infants, json.dumps(case.children_ages) if case.children_ages is not None else None,
                 ),
             )
             db.commit()
@@ -84,28 +89,32 @@ class CaseRepo:
         return case
 
     def patch(self, case_id: str, patch: dict[str, Any]) -> TripCase:
-        allowed = {"customer_name","destination","origin","depart_date","return_date","adults","children","budget_twd","notes","status"}
-        current = self.get(case_id)
-        if not current:
-            raise KeyError(case_id)
-        patch = {k: v for k, v in patch.items() if k in allowed}
-        if not patch:
-            return current
-        patch["updated_at"] = now_iso()
-        assignments, values = [], []
-        for k, v in patch.items():
-            assignments.append(f"{k}=?")
-            if isinstance(v, date):
-                v = v.isoformat()
-            if isinstance(v, CaseStatus):
-                v = v.value
-            values.append(v)
-        values.append(case_id)
+        patch = TripCasePatch.model_validate(patch).model_dump(exclude_unset=True, mode="json")
         with connect() as db:
+            # Validate the merged record before any write and serialize competing updates.
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT * FROM trip_cases WHERE id=?", (case_id,)).fetchone()
+            if not row:
+                raise KeyError(case_id)
+            current = _case_from_row(row)
+            if not patch:
+                return current
+            merged = {**current.model_dump(mode="json"), **patch, "updated_at": now_iso()}
+            TripCaseCreate.model_validate(merged)
+            updated = TripCase.model_validate(merged)
+            serialized = updated.model_dump(mode="json")
+            assignments, values = [], []
+            for key in [*patch, "updated_at"]:
+                column = "children_ages_json" if key == "children_ages" else key
+                value = serialized[key]
+                if key == "children_ages" and value is not None:
+                    value = json.dumps(value)
+                assignments.append(f"{column}=?")
+                values.append(value)
+            values.append(case_id)
             db.execute(f"UPDATE trip_cases SET {', '.join(assignments)} WHERE id=?", values)
-            db.commit()
-        audit(case_id, "system", "case.updated", patch, patch["updated_at"])
-        return self.get(case_id)  # type: ignore[return-value]
+        audit(case_id, "system", "case.updated", patch, updated.updated_at)
+        return updated
 
 
 class SessionRepo:
@@ -572,6 +581,7 @@ class BrowserTaskRepo:
     def update(
         self, task_id: str, status: str, result_text: str | None = None,
         result_json: dict[str, Any] | None = None, review_state: str | None = None,
+        result_attempt_id: str | None | object = _UNSET,
     ) -> BrowserTask:
         ts = now_iso()
         current = self.get(task_id)
@@ -584,10 +594,11 @@ class BrowserTaskRepo:
         )
         if result_text is None:
             result_text = current.result_text
+        attempt_id = current.result_attempt_id if result_attempt_id is _UNSET else result_attempt_id
         with connect() as db:
             db.execute(
-                "UPDATE browser_tasks SET status=?,result_text=?,result_json=?,review_state=?,updated_at=? WHERE id=?",
-                (status, result_text, json_blob, review_state, ts, task_id),
+                "UPDATE browser_tasks SET status=?,result_text=?,result_json=?,review_state=?,result_attempt_id=?,updated_at=? WHERE id=?",
+                (status, result_text, json_blob, review_state, attempt_id, ts, task_id),
             )
             row = db.execute("SELECT * FROM browser_tasks WHERE id=?", (task_id,)).fetchone()
             db.commit()

@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi import BackgroundTasks, Body, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import ValidationError
 
 from app.airlines import all_airlines
 from app.hotels import all_networks
@@ -31,6 +32,7 @@ from app.models import (
     HotelSearchRequest,
     HotelSiteGrantCreate,
     TripCaseCreate,
+    TripCasePatch,
     UserPreferencesPatch,
     MomIntentRequest,
     SkillFeedbackCreate,
@@ -63,6 +65,9 @@ from app.services.radar import build_radar
 from app.services.mom_ux import build_mom_home, infer_mom_intent, next_best_action, search_run_progress
 from app.services.skill_feedback import capture_skill_feedback
 from app.services.readiness import build_system_readiness
+from app.services.case_workflow import add_manual_option, case_workflow, select_case_option, require_case, validate_search_case
+from app.workflow_models import ManualOptionCreate, CaseOptionSelection
+from app.workflow_repository import case_workflow_repo
 from app.services.replies import draft_customer_reply
 from app.services.scoring import rank_flights, rank_hotels
 from app.security import operator_authorized, security_headers_for_path, validate_runtime_settings
@@ -167,15 +172,56 @@ def get_mom_case(case_id: str):
     obj = case_repo.get(case_id)
     if not obj:
         raise HTTPException(404, "case not found")
-    return {"case": obj, "next_action": next_best_action(obj)}
+    workflow = case_workflow(case_id)
+    return {**workflow, "next_action": next_best_action(obj, workflow)}
+
+
+@app.get("/api/mom/cases/{case_id}/options")
+def mom_case_options(case_id: str):
+    try:
+        return case_workflow(case_id)
+    except KeyError:
+        raise HTTPException(404, "case not found")
+
+
+@app.post("/api/mom/cases/{case_id}/options")
+def mom_add_manual_option(case_id: str, data: ManualOptionCreate):
+    try:
+        return add_manual_option(case_id, data)
+    except KeyError:
+        raise HTTPException(404, "case not found")
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+
+
+@app.post("/api/mom/cases/{case_id}/selection")
+def mom_select_option(case_id: str, data: CaseOptionSelection):
+    try:
+        return select_case_option(case_id, data.option_id)
+    except KeyError:
+        raise HTTPException(404, "case or option not found")
+    except ValueError as exc:
+        raise HTTPException(409, str(exc))
+
+
+@app.delete("/api/mom/cases/{case_id}/selection/{kind}")
+def mom_clear_selection(case_id: str, kind: str):
+    if kind not in {"flight", "hotel"}:
+        raise HTTPException(422, "kind must be flight or hotel")
+    if not case_repo.get(case_id):
+        raise HTTPException(404, "case not found")
+    case_workflow_repo.clear_selection(case_id, kind)
+    return {"cleared": True}
 
 
 @app.patch("/api/cases/{case_id}")
-def patch_case(case_id: str, patch: dict = Body()):
+def patch_case(case_id: str, patch: TripCasePatch):
     try:
-        return case_repo.patch(case_id, patch)
+        return case_repo.patch(case_id, patch.model_dump(exclude_unset=True))
     except KeyError:
         raise HTTPException(404, "case not found")
+    except ValidationError as exc:
+        raise HTTPException(422, exc.errors(include_context=False))
 
 
 @app.post("/api/guided/{session_id}/start")
@@ -228,7 +274,10 @@ def demo_hotels(destination: str = "Tokyo", nights: int = 2):
 
 @app.post("/api/customer-reply")
 async def customer_reply(req: CustomerReplyRequest):
-    return await draft_customer_reply(req)
+    try:
+        return await draft_customer_reply(req)
+    except KeyError:
+        raise HTTPException(404, "case not found")
 
 
 @app.post("/api/agent/ask")
@@ -312,7 +361,14 @@ def revoke_hotel_site_grant(grant_id: str):
 
 @app.post("/api/browser/flight-search")
 def create_structured_flight_search(data: FlightSearchRequest):
-    return browser_task_service.create_flight_search(data)
+    try:
+        if data.case_id:
+            validate_search_case(require_case(data.case_id), data, "flight")
+        return browser_task_service.create_flight_search(data)
+    except KeyError:
+        raise HTTPException(404, "case not found")
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
 
 
 @app.get("/api/browser/runs")
@@ -421,8 +477,17 @@ def booking_preflight(data: BookingPreflightRequest):
 
 @app.post("/api/browser/hotel-search")
 def create_structured_hotel_search(data: HotelSearchRequest):
+    if data.case_id:
+        try:
+            validate_search_case(require_case(data.case_id), data, "hotel")
+        except KeyError:
+            raise HTTPException(404, "case not found")
+        except ValueError as exc:
+            raise HTTPException(422, str(exc))
     try:
         return browser_task_service.create_hotel_search(data)
+    except KeyError:
+        raise HTTPException(404, "case not found")
     except ValueError as exc:
         raise HTTPException(400, str(exc))
 

@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "mom-travel-desk"
 version = "0.8.1"
@@ -13,6 +17,12 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "pytest-asyncio>=0.25"]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.setuptools.package-data]
+app = ["mom_static/*", "admin_static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
