@@ -148,3 +148,50 @@ def test_production_requires_operator_token(monkeypatch):
     monkeypatch.setattr(security_module, "settings", production)
     with pytest.raises(RuntimeError, match="TRAVEL_DESK_ADMIN_TOKEN"):
         security_module.validate_runtime_settings()
+
+
+
+def test_actual_body_limit_and_non_ascii_token_do_not_reach_mutations(monkeypatch):
+    import app.main as main_module
+    import app.security as security_module
+    configured = replace(main_module.settings, max_request_body_bytes=64, admin_token='secret')
+    monkeypatch.setattr(main_module, 'settings', configured)
+    monkeypatch.setattr(security_module, 'settings', configured)
+    assert client.get('/api/cases', headers=[(b'X-Travel-Desk-Admin-Token', b'\xe9')]).status_code == 401
+    headers = {'X-Travel-Desk-Admin-Token':'secret', 'Content-Type':'application/json'}
+    for body in [iter([b'x'*32, b'x'*33]), b'x'*65]:
+        response = client.post('/api/cases', content=body, headers=headers)
+        assert response.status_code == 413
+        assert response.headers['cache-control'] == 'no-store'
+        assert response.headers['x-content-type-options'] == 'nosniff'
+    assert client.post('/api/cases', content=b'{}', headers={**headers, 'Content-Length':'-1'}).status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_asgi_limit_checks_each_chunk_replays_exact_bytes_and_keeps_disconnect():
+    from app.request_limits import RequestBodyLimitMiddleware
+    received, sent, dispatched = [], [], []
+    scope = {'type':'http', 'headers':[], 'method':'POST', 'path':'/webhooks/line'}
+    async def endpoint(scope, receive, send):
+        dispatched.append(True)
+        received.append(await receive())
+        received.append(await receive())
+    async def run(chunks):
+        messages = iter([{'type':'http.request', 'body':c, 'more_body':i<len(chunks)-1} for i,c in enumerate(chunks)]+[{'type':'http.disconnect'}])
+        async def receive():return next(messages)
+        async def send(message):sent.append(message)
+        await RequestBodyLimitMiddleware(endpoint, limit=lambda:5)(scope, receive, send)
+    await run([b'a',b'bcde'])
+    assert received == [{'type':'http.request','body':b'abcde','more_body':False}, {'type':'http.disconnect'}]
+    dispatched.clear(); received.clear()
+    await run([b'abc',b'def'])
+    assert not dispatched and sent[0]['status'] == 413
+
+
+def test_auth_rejects_oversized_request_before_body_limit(monkeypatch):
+    import app.main as main_module
+    import app.security as security_module
+    secured = replace(main_module.settings, admin_token='private', max_request_body_bytes=8)
+    monkeypatch.setattr(main_module, 'settings', secured)
+    monkeypatch.setattr(security_module, 'settings', secured)
+    assert client.post('/api/cases', content=b'x'*100).status_code == 401

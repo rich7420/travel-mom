@@ -304,12 +304,17 @@ def test_amend_booking_rebind_document_repair_and_customer_name(client):
         response = post(client, case, f"bookings/{b['id']}/rebind", evidence(reason='供應商確認仍適用新版',customer_details='核對日期與旅客後仍適用'))
         assert response.status_code == 200, response.text
         assert response.json()['history'][0]['before']['quote_id'] == first['id']
-    assert post(client, case, 'pretrip', intent(title='改版摘要')).json()['status'] == 'prepared'
+    assert post(client, case, 'pretrip', intent(title='改版摘要')).json()['status'] == 'draft'
+    for doc in bundle(client, case)['documents']:
+        assert doc['needs_recheck']
+        response = client.patch(f"/api/mom/cases/{case['id']}/documents/{doc['id']}", json=evidence(expected_revision=doc['revision'], status='ready', customer_text='依新版訂購重新核對文件'))
+        assert response.status_code == 200
+    ticket['revision'] += 1
     # Mistyped record: void and replace, then rebind the required document explicitly.
     assert post(client, case, f"bookings/{flights['id']}/void", evidence(reason='確認號誤錄')).status_code == 200
     replacement = verified_booking(client, case)
     patch_url = f"/api/mom/cases/{case['id']}/documents/{ticket['id']}"
-    changes = evidence(expected_revision=2,status='ready',customer_text='已核對',booking_id=replacement['id'])
+    changes = evidence(expected_revision=ticket['revision'],status='ready',customer_text='已核對',booking_id=replacement['id'])
     assert client.patch(patch_url,json=changes).status_code == 409
     changes['reason']='確認號錯誤修正後重新綁定'
     assert client.patch(patch_url,json=changes).status_code == 200
@@ -371,3 +376,121 @@ def test_patch_retry_distinguishes_omitted_and_explicit_null_binding(client):
     # Missing means keep; explicit null means unbind, so cannot reuse this retry key.
     assert client.patch(url, json={**payload, 'booking_id':None}).status_code == 409
     assert client.patch(url, json=payload).json() == first.json()
+
+
+
+def test_each_booking_needs_its_own_verified_document(client):
+    case, _ = family(client)
+    accepted(client, case)
+    first, second, hotel = verified_booking(client, case), verified_booking(client, case), verified_booking(client, case, 'hotel')
+    ready_document(client, case, first, 'e_ticket')
+    ready_document(client, case, hotel, 'hotel_voucher')
+    pack = post(client, case, 'pretrip', intent(title='缺第二筆機票')).json()
+    assert pack['status'] == 'draft' and any(second['confirmation_number'] in b for b in pack['blockers'])
+    ready_document(client, case, second, 'e_ticket')
+    assert post(client, case, 'pretrip', intent(title='齊全')).json()['status'] == 'prepared'
+    post(client, case, f"bookings/{second['id']}/void", evidence(reason='換訂購確認'))
+    replacement = verified_booking(client, case)
+    assert post(client, case, 'pretrip', intent(title='替代訂購待核对')).json()['status'] == 'draft'
+    assert replacement['id'] != second['id']
+
+
+def test_product_documents_require_correct_effective_binding_and_legacy_recheck(client):
+    case, _ = family(client)
+    accepted(client, case)
+    flight, hotel = verified_booking(client, case), verified_booking(client, case, 'hotel')
+    ticket = post(client, case, 'documents', intent(kind='e_ticket', title='機票')).json()
+    url = f"/api/mom/cases/{case['id']}/documents/{ticket['id']}"
+    assert client.patch(url, json=evidence(expected_revision=1, status='ready', customer_text='已核對')).status_code == 409
+    assert client.patch(url, json=evidence(expected_revision=1, status='ready', customer_text='已核對', booking_id=hotel['id'], reason='修正訂購關聯')).status_code == 409
+    response = client.patch(url, json=evidence(expected_revision=1, status='ready', customer_text='已核對', booking_id=flight['id'], reason='修正訂購關聯'))
+    assert response.status_code == 200
+    ready_document(client, case, hotel, 'hotel_voucher')
+    # Simulate a pre-upgrade ready document and prepared pack with an unchanged hash.
+    with connect() as db:
+        legacy = service.record(db, 'documents', case['id'], ticket['id'])
+        legacy.pop('verification')
+        service.save(db, 'documents', legacy)
+    pack = post(client, case, 'pretrip', intent(title='舊文件')).json()
+    assert pack['status'] == 'draft'
+    with connect() as db:
+        pack['status'] = 'prepared'; pack['blockers'] = []
+        service.save(db, 'pretrip', pack)
+    assert bundle(client, case)['documents'][0]['needs_recheck']
+    assert bundle(client, case)['pretrip'][0]['stale']
+    assert client.get(f"/api/mom/cases/{case['id']}/pretrip/{pack['id']}/document").status_code == 409
+    assert post(client, case, f"pretrip/{pack['id']}/deliver", evidence(channel='LINE')).status_code == 409
+    assert client.patch(url, json=evidence(expected_revision=2, status='ready', customer_text='重新人工核對')).status_code == 200
+    assert post(client, case, 'pretrip', intent(title='重新核對完成')).json()['status'] == 'prepared'
+
+
+def test_trip_change_resets_status_but_display_edits_do_not_and_audit_has_actor(client):
+    case, _ = family(client)
+    accepted(client, case)
+    flight, hotel = verified_booking(client, case), verified_booking(client, case, 'hotel')
+    ready_document(client, case, flight, 'e_ticket'); ready_document(client, case, hotel, 'hotel_voucher')
+    path = f"/api/cases/{case['id']}"
+    assert client.patch(path, json={'depart_date':case['depart_date'], 'customer_name':'更正稱呼', 'notes':'補充'}).json()['status'] == 'confirmed'
+    changed = client.patch(path, json={'adults':3, 'status':'confirmed'})
+    assert changed.status_code == 200 and changed.json()['status'] == 'quoting'
+    assert all(d['needs_recheck'] for d in bundle(client, case)['documents'])
+    assert client.get(f"/api/mom/cases/{case['id']}").json()['next_action']['kind'] == 'case_options'
+    with connect() as db:
+        assert db.execute("SELECT actor FROM audit_log WHERE case_id=? AND action='case.updated' ORDER BY id DESC LIMIT 1", (case['id'],)).fetchone()[0] == 'operator'
+
+
+def test_lifecycle_next_action_and_urgent_deadline_precedence(client):
+    case, _ = family(client)
+    def action(): return client.get(f"/api/mom/cases/{case['id']}").json()['next_action']
+    assert action()['kind'] == 'quotes'
+    q = post(client, case, 'quotes', quote_payload()).json()
+    assert action()['kind'] == 'quotes' and '送出' in action()['label']
+    post(client, case, f"quotes/{q['id']}/sent", evidence())
+    assert '決定' in action()['label']
+    post(client, case, f"quotes/{q['id']}/accept", evidence())
+    assert action()['kind'] == 'bookings'
+    flight, hotel = verified_booking(client, case), verified_booking(client, case, 'hotel')
+    assert action()['kind'] == 'pretrip' and '文件' in action()['label']
+    ready_document(client, case, flight, 'e_ticket'); ready_document(client, case, hotel, 'hotel_voucher')
+    assert '產生' in action()['label']
+    pack = post(client, case, 'pretrip', intent(title='行前資料')).json()
+    assert '交付' in action()['label']
+    post(client, case, f"pretrip/{pack['id']}/deliver", evidence(channel='LINE'))
+    assert action()['kind'] == 'case'
+    task = post(client, case, 'work-items', intent(kind='balance', title='確認尾款期限', owner='媽媽', source='客人約定', due_at=moment(-1))).json()
+    assert action()['kind'] == 'tasks' and action()['record_id'] == task['id']
+    home = client.get('/api/mom/home').json()
+    card = next(c for c in home['priority'] if c['id'] == case['id'])
+    assert card['next_action'] == action()
+    client.patch(f"/api/mom/cases/{case['id']}/work-items/{task['id']}", json=intent(expected_revision=1, status='done', reason='已完成核對'))
+    assert action()['kind'] == 'case'
+
+
+def test_expired_optional_quote_does_not_hide_adopted_lifecycle(client):
+    case, _ = family(client)
+    accepted(client, case)
+    verified_booking(client, case); verified_booking(client, case, 'hotel')
+    pending = post(client, case, 'quotes', quote_payload()).json()
+    with connect() as db:
+        pending['valid_until'] = moment(-1)
+        service.save(db, 'quotes', pending)
+    action = client.get(f"/api/mom/cases/{case['id']}").json()['next_action']
+    assert action['kind'] == 'pretrip'
+    client.patch(f"/api/cases/{case['id']}", json={'status':'travelling'})
+    task = post(client, case, 'work-items', intent(kind='change', title='旅途中異動', owner='媽媽', source='客人通知', due_at=moment(-1))).json()
+    action = client.get(f"/api/mom/cases/{case['id']}").json()['next_action']
+    assert action['kind'] == 'tasks' and action['record_id'] == task['id']
+
+
+def test_non_product_document_survives_fee_only_amendment_but_not_trip_edit(client):
+    case, _ = family(client)
+    accepted(client, case)
+    doc = post(client, case, 'documents', intent(kind='insurance', title='保險確認')).json()
+    url = f"/api/mom/cases/{case['id']}/documents/{doc['id']}"
+    assert client.patch(url, json=evidence(expected_revision=1, status='ready', customer_text='本次旅程保險已人工核對')).status_code == 200
+    q = post(client, case, 'quotes', quote_payload()).json()
+    post(client, case, f"quotes/{q['id']}/sent", evidence())
+    post(client, case, f"quotes/{q['id']}/accept", evidence(amend=True, reason='服務費重新確認'))
+    assert not bundle(client, case)['documents'][0]['needs_recheck']
+    client.patch(f"/api/cases/{case['id']}", json={'adults':3})
+    assert bundle(client, case)['documents'][0]['needs_recheck']

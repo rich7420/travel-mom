@@ -26,11 +26,12 @@
     </header>
 
     <main id="main" tabindex="-1">
+      <div id="bootstrapNotices" class="stack"></div>
       <section id="view-today" class="view is-active" data-view="today" aria-labelledby="todayTitle">
         <div class="hero-card">
           <div class="hero-content">
             <p class="section-kicker" id="todayDate">今天的旅行工作</p>
-            <h2 id="todayTitle">每一趟旅行，<br>從這裡接續。</h2>
+            <h2 id="todayTitle">今天，接續每趟旅行。</h2>
             <p id="todaySummary">正在整理今天的工作…</p>
             <button id="primaryTodayAction" class="primary-button" type="button" data-action="new-case">＋ 新客人</button>
           </div>
@@ -38,9 +39,10 @@
             <svg viewBox="0 0 260 180" fill="none"><path d="M20 148C90 148 66 40 130 40s53 101 110 59" stroke="currentColor" stroke-width="1.5" stroke-dasharray="5 7"/><circle cx="20" cy="148" r="5" fill="currentColor"/><circle cx="240" cy="99" r="7" stroke="currentColor" stroke-width="2"/><path d="m127 29 14 20-11-3-8 7 5-24Z" fill="currentColor"/><path d="M38 46h35M56 28v35M185 148h23M197 137v23" stroke="currentColor" opacity=".35"/></svg>
             <span>接續客人的下一步</span>
           </div>
-          <div class="workflow-rail" aria-label="一般工作流程，非案件進度"><span><i>01</i> 接單</span><span><i>02</i> 查價</span><span><i>03</i> 選方案</span><span><i>04</i> 回客人</span></div>
+          <div class="workflow-rail" aria-label="一般工作流程，非案件進度"><span><i>01</i> 接單查價</span><span><i>02</i> 報價回覆</span><span><i>03</i> 訂購收款</span><span><i>04</i> 行前交付</span></div>
         </div>
 
+        <section class="section-block" aria-labelledby="deadlineHomeTitle"><div class="section-heading split"><div><h2 id="deadlineHomeTitle">工作期限</h2><p>台北時間；全部逾期與今日待辦。</p></div><button class="text-button" type="button" data-nav="tasks">全部待辦 →</button></div><div id="homeDeadlines" class="stack"><p class="muted">載入工作期限…</p></div></section>
         <section class="section-block" aria-labelledby="quickTitle">
           <div class="section-heading">
             <h2 id="quickTitle">常用工作</h2>
@@ -54,11 +56,11 @@
           </div>
         </section>
 
-        <section class="section-block" aria-labelledby="deadlineHomeTitle"><div class="section-heading split"><div><h2 id="deadlineHomeTitle">工作期限</h2><p>台北時間；全部逾期與今日待辦。</p></div><button class="text-button" type="button" data-nav="tasks">全部待辦 →</button></div><div id="homeDeadlines" class="stack"><p class="muted">載入工作期限…</p></div></section>
+
         <div class="workspace-grid">
         <section class="section-block priority-section" aria-labelledby="priorityTitle">
           <div class="section-heading split">
-            <div><h2 id="priorityTitle">今天要處理</h2><p>依出發日與進度排序。</p></div>
+            <div><h2 id="priorityTitle">今天要處理</h2><p>依工作期限、出發日與進度排序。</p></div>
             <button class="text-button" type="button" data-action="refresh-home">重新整理</button>
           </div>
           <div id="priorityList" class="stack" role="list" aria-label="優先處理案件"><div class="skeleton-card">載入中…</div></div>

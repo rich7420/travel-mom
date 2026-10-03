@@ -120,7 +120,7 @@ def test_manual_options_selection_and_local_reply_persist_without_openclaw(clien
     assert '尚未保留或完成訂購' in reply['text']
     assert 'OpenClaw' not in reply['text']
     detail=client.get(f"/api/mom/cases/{case['id']}").json()
-    assert detail['next_action']['kind']=='customer_reply'
+    assert detail['next_action']['kind']=='quotes'
 
 
 def test_case_changes_invalidate_selected_prices_and_cannot_reselect(client):

@@ -72,6 +72,7 @@ from app.services.replies import draft_customer_reply
 from app.services.scoring import rank_flights, rank_hotels
 from app.security import operator_authorized, security_headers_for_path, validate_runtime_settings, is_production, access_exempt, access_requires_admin, verify_access_origin
 from app.cloudflare_access import AccessVerifier
+from app.request_limits import RequestBodyLimitMiddleware
 
 
 from app.operations_models import QuoteCreate, QuoteDecision, WorkItemCreate, WorkItemPatch, BookingCreate, BookingRebind, VoidRecord, LedgerCreate, DocumentCreate, DocumentPatch, PackCreate, PackDelivery
@@ -96,28 +97,11 @@ app = FastAPI(title="Mom Travel Desk POC", version="0.8.1", lifespan=lifespan,
               openapi_url=None if is_production() else "/openapi.json")
 
 
+app.add_middleware(RequestBodyLimitMiddleware, limit=lambda: settings.max_request_body_bytes)
+
+
 @app.middleware("http")
 async def protect_operator_api(request: Request, call_next):
-    content_length = request.headers.get("content-length")
-    if content_length:
-        try:
-            if int(content_length) > settings.max_request_body_bytes:
-                response = JSONResponse(
-                    status_code=413,
-                    content={"detail": "request body too large"},
-                )
-                for key, value in security_headers_for_path(request.url.path).items():
-                    response.headers[key] = value
-                return response
-        except ValueError:
-            response = JSONResponse(
-                status_code=400,
-                content={"detail": "invalid content-length"},
-            )
-            for key, value in security_headers_for_path(request.url.path).items():
-                response.headers[key] = value
-            return response
-
     if settings.auth_mode == "cloudflare" and not access_exempt(request):
         try:
             request.state.identity = await app.state.access_verifier.verify(request.headers.get("cf-access-jwt-assertion", ""))
@@ -250,9 +234,9 @@ def mom_clear_selection(case_id: str, kind: str):
 
 
 @app.patch("/api/cases/{case_id}")
-def patch_case(case_id: str, patch: TripCasePatch):
+def patch_case(case_id: str, patch: TripCasePatch, request: Request):
     try:
-        return case_repo.patch(case_id, patch.model_dump(exclude_unset=True))
+        return case_repo.patch(case_id, patch.model_dump(exclude_unset=True), actor=agency_actor(request))
     except KeyError:
         raise HTTPException(404, "case not found")
     except ValidationError as exc:

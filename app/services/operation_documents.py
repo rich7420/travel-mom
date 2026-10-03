@@ -32,7 +32,7 @@ def customer_document(case_id: str, record_id: str, kind: str) -> str:
             quote = accepted_quote(db, case_id)
             case = _case_from_row(db.execute("SELECT * FROM trip_cases WHERE id=?", (case_id,)).fetchone())
             source = pack_source(db, case, quote)
-            if value["source_hash"] != fingerprint(source):
+            if value["source_hash"] != fingerprint(source) or pack_blockers(source, quote):
                 raise OperationConflict("行前摘要來源已變更，請重新產生，舊版不可複製或列印")
             safe = public_pack(value)
             warning = ""

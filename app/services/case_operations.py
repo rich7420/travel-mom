@@ -272,10 +272,15 @@ def balances(quote: dict | None, entries: list[dict]) -> dict:
     return result
 
 
-def validate_document_booking(db, case, booking_id: str) -> None:
+DOCUMENT_BOOKING_KINDS = {"e_ticket": "flight", "hotel_voucher": "hotel"}
+
+
+def validate_document_booking(db, case, booking_id: str, kind: str) -> dict:
     booking = record(db, "bookings", case.id, booking_id)
     quote = accepted_quote(db, case.id)
-    require(booking["status"] == "confirmed" and booking["quote_id"] == quote["id"] and trip_matches(booking["case_snapshot"], snapshot(case)), "請將文件關聯至目前採用報價的有效訂購紀錄，或以原因修正為不綁定")
+    require(booking["status"] == "confirmed" and booking["quote_id"] == quote["id"] and trip_matches(booking["case_snapshot"], snapshot(case)), "請將文件關聯至目前採用報價的有效訂購紀錄")
+    require(kind not in DOCUMENT_BOOKING_KINDS or booking["kind"] == DOCUMENT_BOOKING_KINDS[kind], "電子機票須關聯機票訂購；住宿憑證須關聯飯店訂購")
+    return booking
 
 
 def create_document(case_id: str, data, actor: str) -> dict:
@@ -283,7 +288,7 @@ def create_document(case_id: str, data, actor: str) -> dict:
         payload = data.model_dump(mode="json", exclude={"request_id"})
         validate_links(db, case_id, payload)
         if data.booking_id:
-            validate_document_booking(db, case, data.booking_id)
+            validate_document_booking(db, case, data.booking_id, data.kind)
         return save(db, "documents", new_record(case_id, "document", {**payload, "status": "missing", "customer_text": "", "customer_url": None}))
     return command(case_id, data, actor, "document.create", execute)
 
@@ -299,10 +304,18 @@ def patch_document(case_id: str, document_id: str, data, actor: str) -> dict:
         binding_changed = any(key in changes and changes[key] != doc.get(key) for key in ["required", "booking_id"])
         if binding_changed:
             require(len(data.reason.strip()) >= 3, "更改必備標示或關聯訂購須填修正原因")
-        if data.booking_id:
-            validate_document_booking(db, case, data.booking_id)
-        doc.setdefault("history", []).append({"before": {k: doc.get(k) for k in changes}, "actor": actor, "at": now_iso(), "reason": data.reason})
-        doc.update(changes)
+        effective = {**doc, **changes}
+        booking = None
+        if effective.get("booking_id") and (data.status == "ready" or effective["booking_id"] != doc.get("booking_id")):
+            booking = validate_document_booking(db, case, effective["booking_id"], doc["kind"])
+        if data.status == "ready":
+            require(doc["kind"] not in DOCUMENT_BOOKING_KINDS or booking is not None, "電子機票／住宿憑證備妥時，必須關聯對應的有效訂購")
+        # Every ready PATCH is an explicit human check, even a requirement-only correction.
+        verification = {"case_snapshot": trip_snapshot(case), "booking_id": effective.get("booking_id"),
+                        "booking_revision": booking["revision"] if booking else None,
+                        "quote_id": booking["quote_id"] if booking else None} if data.status == "ready" else None
+        doc.setdefault("history", []).append({"before": {**{k: doc.get(k) for k in changes}, "verification": doc.get("verification")}, "actor": actor, "at": now_iso(), "reason": data.reason})
+        doc.update(changes, verification=verification)
         doc["revision"] += 1
         return save(db, "documents", doc)
     return command(case_id, data, actor, f"document.{document_id}.patch", execute)
@@ -315,6 +328,23 @@ def pack_source(db, case, quote: dict) -> dict:
     return {"case_snapshot": snapshot(case), "quote_id": quote["id"], "quote_version": quote["version"], "bookings": bookings, "documents": docs}
 
 
+def document_current(doc: dict, source: dict) -> bool:
+    verification = doc.get("verification")
+    if doc["status"] != "ready" or not verification or not trip_matches(verification["case_snapshot"], source["case_snapshot"]):
+        return False
+    booking_id = doc.get("booking_id")
+    if doc["kind"] in DOCUMENT_BOOKING_KINDS and not booking_id:
+        return False
+    if not booking_id:
+        return not verification.get("booking_id")
+    booking = next((b for b in source["bookings"] if b["id"] == booking_id), None)
+    return bool(booking and booking["status"] == "confirmed" and booking["quote_id"] == source["quote_id"]
+                and trip_matches(booking["case_snapshot"], source["case_snapshot"])
+                and verification.get("booking_id") == booking_id and verification.get("booking_revision") == booking["revision"]
+                and verification.get("quote_id") == booking["quote_id"]
+                and (doc["kind"] not in DOCUMENT_BOOKING_KINDS or booking["kind"] == DOCUMENT_BOOKING_KINDS[doc["kind"]]))
+
+
 def pack_blockers(source: dict, quote: dict) -> list[str]:
     blockers = []
     if not trip_matches(source["case_snapshot"], quote["case_snapshot"]):
@@ -323,13 +353,12 @@ def pack_blockers(source: dict, quote: dict) -> list[str]:
     kinds = {b["kind"] for b in bookings}
     for kind in {i["kind"] for i in quote["items"]} - kinds:
         blockers.append(f"{'機票' if kind == 'flight' else '飯店'}尚無符合此報價的訂購確認")
-    # A checklist is mandatory, with product-specific required evidence entries.
-    for kind, doc_kind in [("flight", "e_ticket"), ("hotel", "hotel_voucher")]:
-        if kind in kinds and not any(d["kind"] == doc_kind and d["required"] for d in source["documents"]):
-            blockers.append(f"請加入必備的{'電子機票' if kind == 'flight' else '住宿憑證'}文件項目")
-    confirmed_ids = {b["id"] for b in bookings}
+    for booking in bookings:
+        doc_kind = 'e_ticket' if booking['kind'] == 'flight' else 'hotel_voucher'
+        if not any(d["kind"] == doc_kind and d["required"] and d.get("booking_id") == booking["id"] and document_current(d, source) for d in source["documents"]):
+            blockers.append(f"訂購 {booking['confirmation_number']} 尚缺已核對的必備{'電子機票' if booking['kind'] == 'flight' else '住宿憑證'}")
     for doc in source["documents"]:
-        if doc["required"] and (doc["status"] != "ready" or (doc.get("booking_id") and doc["booking_id"] not in confirmed_ids)):
+        if doc["required"] and not document_current(doc, source):
             blockers.append(f"文件待核對：{doc['title']}")
     return blockers
 
@@ -342,11 +371,10 @@ def public_quote(quote: dict) -> dict:
 
 def public_pack(pack: dict) -> dict:
     source = pack["source"]
-    current_ids = {b["id"] for b in source["bookings"] if b["status"] == "confirmed" and b["quote_id"] == source["quote_id"] and trip_matches(b["case_snapshot"], source["case_snapshot"])}
     return {"id": pack["id"], "version": pack["version"], "title": pack["title"], "created_at": pack["created_at"], "case_snapshot": source["case_snapshot"],
         "quote_version": source["quote_version"], "blockers": pack["blockers"],
         "bookings": [{k: b[k] for k in ["kind", "title", "confirmation_number", "customer_details"]} for b in source["bookings"] if b["status"] == "confirmed" and b["quote_id"] == source["quote_id"] and trip_matches(b["case_snapshot"], source["case_snapshot"])],
-        "documents": [{k: d[k] for k in ["title", "customer_text", "customer_url"]} for d in source["documents"] if d["status"] == "ready" and (not d.get("booking_id") or d["booking_id"] in current_ids)]}
+        "documents": [{k: d[k] for k in ["title", "customer_text", "customer_url"]} for d in source["documents"] if document_current(d, source)]}
 
 
 def create_pack(case_id: str, data, actor: str) -> dict:
@@ -383,7 +411,14 @@ def case_operations(case_id: str) -> dict:
         quote = next((q for q in bundle["quotes"] if q["status"] == "accepted"), None)
         bundle["accepted_quote_id"] = quote["id"] if quote else None
         bundle["balances"] = balances(quote, bundle["ledger"])
-        bundle["warnings"] = pack_blockers(pack_source(db, case, quote), quote) if quote else ["尚未記錄客人採用的報價"]
+        source = {"case_snapshot": snapshot(case), "quote_id": quote["id"] if quote else None,
+                  "bookings": bundle["bookings"], "documents": bundle["documents"]}
+        bundle["warnings"] = pack_blockers(source, quote) if quote else ["尚未記錄客人採用的報價"]
+        # Compute hashes before adding response-only flags to the stored records.
+        source_hash = fingerprint(pack_source(db, case, quote)) if quote else None
+        blocked = bool(bundle["warnings"])
+        for doc in bundle["documents"]:
+            doc["needs_recheck"] = doc["status"] == "ready" and not document_current(doc, source)
         if quote:
             bundle["warnings"].extend(f"訂購需重新核對採用版本：{b['title']}" for b in bundle["bookings"] if b["status"] == "confirmed" and (b["quote_id"] != quote["id"] or not trip_matches(b["case_snapshot"], snapshot(case))))
         for booking in bundle["bookings"]:
@@ -394,5 +429,45 @@ def case_operations(case_id: str) -> dict:
                     bundle["warnings"].append(f"確認號也登錄在其他案件，請核對是否為同一團體或誤填：{booking['confirmation_number']}")
         bundle["work_items"] = [deadline_state(i) for i in bundle["work_items"]]
         for pack in bundle["pretrip"]:
-            pack["stale"] = not quote or pack["source_hash"] != fingerprint(pack_source(db, case, quote))
+            pack["stale"] = not quote or pack["source_hash"] != source_hash or blocked
         return {"case": case.model_dump(mode="json"), **bundle}
+
+
+def lifecycle_action(case) -> dict | None:
+    """A small read snapshot shared by home cards and the case's primary action."""
+    def action(module, label, reason):
+        return {"kind": module, "module": module, "label": label, "reason": reason, "case_id": case.id}
+
+    with connect() as db:
+        db.execute("BEGIN")
+        tasks = [deadline_state(i) for i in rows(db, "work_items", case.id)]
+        urgent = sorted((i for i in tasks if i["timing"] in {"overdue", "today"}), key=lambda i: i["due_at"])
+        if urgent:
+            return {**action("tasks", "處理期限待辦", urgent[0]["title"]), "record_id": urgent[0]["id"]}
+        if case.status.value == "travelling":
+            return action("case", "查看旅途中事項", "客人目前正在旅行")
+        quotes = rows(db, "quotes", case.id)
+        quote = next((q for q in quotes if q["status"] == "accepted"), None)
+        if quote and not trip_matches(quote["case_snapshot"], snapshot(case)):
+            return action("case_options", "更新選案與報價", "旅行需求已變更，請重新查價與核對")
+        pending = next((q for q in reversed(quotes) if q["status"] in {"draft", "sent"}), None)
+        if pending:
+            pending_current = trip_matches(pending["case_snapshot"], snapshot(case)) and datetime.fromisoformat(pending["valid_until"]) > datetime.now(timezone.utc)
+            if pending_current:
+                return action("quotes", "核對並送出報價" if pending["status"] == "draft" else "追蹤客人報價決定", f"第 {pending['version']} 版報價")
+            if not quote:
+                return action("case_options", "更新選案與報價", "報價已過期或旅行需求已變更")
+        if not quote:
+            return None
+        source = pack_source(db, case, quote)
+        current = [b for b in source["bookings"] if b["status"] == "confirmed" and b["quote_id"] == quote["id"] and trip_matches(b["case_snapshot"], source["case_snapshot"])]
+        if not {i["kind"] for i in quote["items"]} <= {b["kind"] for b in current}:
+            return action("bookings", "核對供應商訂購確認", "客人已採用報價，請登錄目前有效的正式確認")
+        blockers = pack_blockers(source, quote)
+        if blockers:
+            return action("pretrip", "核對行前文件", blockers[0])
+        source_hash = fingerprint(source)
+        packs = [p for p in rows(db, "pretrip", case.id) if p["source_hash"] == source_hash]
+        if any(p["status"] == "delivered" for p in packs):
+            return action("case", "查看交付與後續事項", "目前行前摘要已記錄人工交付；可核對待辦與收付款")
+        return action("pretrip", "交付行前資料" if any(p["status"] == "prepared" for p in packs) else "產生行前摘要", "文件已核對，請完成摘要與人工交付")

@@ -26,19 +26,19 @@
     return input('內部核對依據（對話日期、收據或供應商通知編號）','reference','','required maxlength="500"')+
       input('實際完成時間（此欄使用裝置時區）','occurred_at',A.localDateTime(),'type="datetime-local" required')+check('checked',label);
   }
-  function bookingSelector(b,selected='') {
+  function bookingSelector(b,selected='',kind='e_ticket') {
+    const needed={e_ticket:'flight',hotel_voucher:'hotel'}[kind];
     const options=b.bookings.filter(v=>v.status==='confirmed'&&v.binding_current||v.id===selected);
-    const choices=Object.fromEntries(options.map(v=>[v.id,`${v.title} · ${v.kind==='flight'?'機票':'飯店'} · ${v.status==='confirmed'&&v.binding_current?'目前有效':'歷史關聯，請改選'} · ${v.confirmation_number}`]));
-    return select('關聯訂購（選填；修正歷史關聯需填原因）','booking_id',{'':'不綁定',...choices},selected||'',false);
+    return `<label><span>關聯訂購（電子機票／住宿憑證備妥時必填）</span><select name="booking_id"><option value="">不綁定</option>${options.map(v=>`<option value="${E(v.id)}" data-kind="${v.kind}" ${v.id===selected?'selected':''} ${needed&&needed!==v.kind?'disabled':''}>${E(v.title)} · ${v.kind==='flight'?'機票':'飯店'} · ${v.status==='confirmed'&&v.binding_current?'目前有效':'歷史關聯，請改選'} · ${E(v.confirmation_number)}</option>`).join('')}</select></label>`;
   }
   function formHTML(body,submit) {return `<form id="operationForm" class="form-grid">${body}<button type="submit" class="primary-button full">${E(submit)}</button></form>`;}
-  function focusAfter(selector){requestAnimationFrame(()=>$(selector)?.focus({preventScroll:true}));}
-  function leaveForm(next){const form=$('#operationForm');if(form?.dataset.dirty==='true'&&!confirm('尚未儲存這次填寫內容，要離開嗎？'))return;if(form)form.dataset.dirty='false';next();}
+  function focusAfter(selector){requestAnimationFrame(()=>$('#sheetBody')?.querySelector(selector)?.focus({preventScroll:true}));}
   async function openModule(c,module,focus='') {
     const generation=A.beginSheetRequest();
+    if(generation===null)return;
     const b=await A.api(`${path(c)}/operations`);
     if(!A.sheetRequestCurrent(generation))return;
-    A.openSheet(`${b.case.customer_name} · ${labels[module]}`,renderModule(c,module,b),true,module==='tasks'?'deadlines':module==='bookings'?'confirmations':module==='ledger'?'payments':module,c);
+    if(!A.openSheet(`${b.case.customer_name} · ${labels[module]}`,renderModule(c,module,b),true,module==='tasks'?'deadlines':module==='bookings'?'confirmations':module==='ledger'?'payments':module,c,generation))return;
     A.setSheetBack(async()=>{await A.openCase(c);focusAfter(`[data-module="${module}"]`);});
     if(focus)focusAfter(focus);
   }
@@ -54,10 +54,11 @@
     if(module==='tasks')return note('把訂金、尾款、開票、取消、補件與回覆期限放在這裡。期限以台北時間顯示，系統不會自動通知或替您開票。')+newButton(c,module,'新增案件待辦')+(b.work_items.length?b.work_items.map(renderTask).join(''):'<div class="empty-state">尚無待辦。可先記錄下一次回覆與供應商期限。</div>');
     if(module==='bookings')return b.warnings.filter(w=>w.includes('確認號也登錄')).map(notice).join('')+note('請先在旅行社或供應商系統完成訂購，再填已核對的確認號。作廢只修正本站紀錄，取消訂購仍須聯絡供應商。')+(!accepted(b)?notice('尚未記錄客人採用報價，請先完成報價流程。'):'')+newButton(c,module,'新增訂購確認',!accepted(b))+(b.bookings.length?b.bookings.map(v=>record(v.title,note(`${v.kind==='flight'?'機票':'飯店'} · ${v.supplier}\n確認號：${v.confirmation_number}\n${v.customer_details}\n核對依據：${v.reference}`)+(v.quote_id!==b.accepted_quote_id?notice('這筆屬於舊版報價，請核對異動後重新登錄；原紀錄保留。'):''),v.status!=='voided'?(!v.binding_current?editButton(c,module,v.id,'rebind','重新核對／沿用至本版'):'')+editButton(c,module,v.id,'void','作廢錯誤紀錄'):'',v.status)).join(''):'<div class="empty-state">尚無訂購確認。需記錄機票／飯店各項供應商的正式確認。</div>');
     if(module==='ledger')return note('這是人工對帳紀錄，不會轉帳。按幣別分開；現金收付差額不是毛利。未知成本／不同幣別不會自動換算。')+Object.entries(b.balances).map(([k,v])=>record(`${k} 對帳`,[['報價總額',v.quote_total],['客人淨收款',v.net_received],['客人尚欠（負數為溢收）',v.customer_balance],['供應商淨付款',v.net_paid],['收付差額',v.net_cash],['預估毛利（成本完整才計算）',v.expected_margin]].map(([label,value])=>`<div class="money-row"><span>${E(label)}</span><b>${money(k,value)}</b></div>`).join(''))).join('')+(!accepted(b)?notice('尚未記錄客人採用報價，無法新增收付款。'):'')+newButton(c,module,'新增實際收付款',!accepted(b))+(b.ledger.length?b.ledger.slice().reverse().map(v=>record(moneyKinds[v.kind],note(`${v.currency} ${v.amount} · ${date(v.occurred_at)}（台北）\n核對依據：${v.reference}\n${v.memo}`),v.status!=='voided'?editButton(c,module,v.id,'void','作廢錯誤紀錄'):'',v.status)).join(''):'<div class="empty-state">尚未記錄實際收付款。</div>');
-    return note('先逐項核對文件，再產生行前摘要。摘要提供對客說明與連結；電子機票／住宿憑證原檔仍須您另外交付。訂購或文件變更後，請產生新版摘要。')+b.warnings.map(notice).join('')+newButton(c,module,'新增文件清單項目')+b.documents.map(v=>record(v.title,note(`${docKinds[v.kind]} · ${v.required?'必備':'選用'}\n${v.customer_text||'尚未填對客說明'}${v.customer_url?`\n${v.customer_url}`:''}`),editButton(c,module,v.id,'document','核對文件／補件'),v.status)).join('')+btn('產生行前摘要新版','ops-form',c,`data-module="pretrip" data-intent="pack"`,true,!accepted(b))+(!accepted(b)?notice('尚未記錄客人採用報價，無法產生行前摘要。'):'')+(b.pretrip.length?b.pretrip.slice().reverse().map(p=>record(`第 ${p.version} 版 · ${p.title}`,p.stale?notice('資料已變更，此版本已失效。請重新產生摘要。'):p.blockers.map(notice).join('')+(p.status==='draft'?notice('草稿不可複製、列印或交付。補齊後請產生新版。'):'')+(p.delivery?note(`已交付：${p.delivery.channel} · ${date(p.delivery.occurred_at)}（台北）\n依據：${p.delivery.reference}`):''),publicButton(c,module,p.id,p.stale||!['prepared','delivered'].includes(p.status))+(p.status==='prepared'&&!p.stale?editButton(c,module,p.id,'deliver','記錄已人工交付'):''),p.stale?'stale':p.status)).join(''):'<div class="empty-state">尚無行前摘要；缺件時可先產生草稿，補齊後再產生可交付版本。</div>');
+    return note('先逐項核對文件，再產生行前摘要。摘要提供對客說明與連結；電子機票／住宿憑證原檔仍須您另外交付。訂購或文件變更後，請產生新版摘要。')+b.warnings.map(notice).join('')+newButton(c,module,'新增文件清單項目')+b.documents.map(v=>record(v.title,note(`${docKinds[v.kind]} · ${v.required?'必備':'選用'}${v.needs_recheck?' · 需求或訂購已變更，須重新核對':''}\n${v.customer_text||'尚未填對客說明'}${v.customer_url?`\n${v.customer_url}`:''}`),editButton(c,module,v.id,'document','核對文件／補件'),v.needs_recheck?'stale':v.status)).join('')+btn('產生行前摘要新版','ops-form',c,`data-module="pretrip" data-intent="pack"`,true,!accepted(b))+(!accepted(b)?notice('尚未記錄客人採用報價，無法產生行前摘要。'):'')+(b.pretrip.length?b.pretrip.slice().reverse().map(p=>record(`第 ${p.version} 版 · ${p.title}`,p.stale?notice('資料已變更，此版本已失效。請重新產生摘要。'):p.blockers.map(notice).join('')+(p.status==='draft'?notice('草稿不可複製、列印或交付。補齊後請產生新版。'):'')+(p.delivery?note(`已交付：${p.delivery.channel} · ${date(p.delivery.occurred_at)}（台北）\n依據：${p.delivery.reference}`):''),publicButton(c,module,p.id,p.stale||!['prepared','delivered'].includes(p.status))+(p.status==='prepared'&&!p.stale?editButton(c,module,p.id,'deliver','記錄已人工交付'):''),p.stale?'stale':p.status)).join(''):'<div class="empty-state">尚無行前摘要；缺件時可先產生草稿，補齊後再產生可交付版本。</div>');
   }
   async function openForm(c,module,intent,id,trigger) {
     const generation=A.beginSheetRequest();
+    if(generation===null)return;
     const b=await A.api(`${path(c)}/operations`);
     let workflow=null;
     if(module==='quotes'&&intent==='create')workflow=await A.api(`${path(c)}/options`);
@@ -74,7 +75,7 @@
       title='作廢錯誤紀錄';body=notice('只作廢本站記錄。供應商取消、退款或銀行轉帳仍須另行處理。')+text('作廢原因','reason','',true,500)+evidence('我已核對原紀錄及作廢依據，確認是修正本站記錄。');
       endpoint=`${module}/${id}/void`;payload=v=>({...proof(v),reason:v.reason});
     } else if(module==='quotes'&&intent==='create') {
-      if(!workflow.can_draft_offer) {A.openSheet('尚不能建立報價',notice('請先選取仍有效、符合案件需求的實際方案。')+btn('比較與選方案','case-options',c),true,'quotes',c);return;}
+      if(!workflow.can_draft_offer) {A.openSheet('尚不能建立報價',notice('請先選取仍有效、符合案件需求的實際方案。')+btn('比較與選方案','case-options',c),true,'quotes',c,generation);return;}
       title='建立報價新版';const expiry=workflow.selections.map(o=>new Date(o.valid_until||new Date(new Date(o.observed_at).getTime()+24*3600000)));
       const until=new Date(Math.min(Date.now()+3600000,...expiry.map(v=>v.getTime())));
       const currencies=[...new Set(workflow.selections.map(o=>o.currency))];
@@ -87,7 +88,7 @@
       endpoint=`quotes/${id}/${intent}`;payload=v=>({...proof(v),amend:v.amend==='on',reason:v.reason||''});submit=title;
     } else if(module==='tasks') {
       title=intent==='create'?'新增案件待辦':'更新期限／完成待辦';
-      if(intent==='create')body=input('待辦名稱','title','','required maxlength="500"')+select('工作種類','kind',kinds)+input('負責人','owner','','required maxlength="100"')+input('期限（裝置時區）','due_at',A.localDateTime(new Date(Date.now()+86400000)),'type="datetime-local" required')+input('期限來源（供應商通知、客人約定等）','source','','required maxlength="500"')+refs('關聯報價','quote_id',b.quotes)+refs('關聯訂購','booking_id',b.bookings)+refs('關聯文件','document_id',b.documents)+text('備註','notes','',false,2000);
+      if(intent==='create')body=select('常用待辦（可選；仍須填實際期限與依據）','task_template',{'':'自行填寫',reply:'回覆客人',deposit:'追蹤訂金',balance:'追蹤尾款',ticketing:'確認開票期限',cancellation:'確認取消期限',document:'追蹤補件',pretrip:'交付行前資料'},'',false)+input('待辦名稱','title','','required maxlength="500"')+select('工作種類','kind',kinds)+input('負責人','owner','','required maxlength="100"')+input('期限（裝置時區）','due_at','','type="datetime-local" required')+input('期限來源（供應商通知、客人約定等）','source','','required maxlength="500"')+refs('關聯報價','quote_id',b.quotes)+refs('關聯訂購','booking_id',b.bookings)+refs('關聯文件','document_id',b.documents)+text('備註','notes','',false,2000);
       else body=note(item.title)+select('處理狀態','status',{open:'待處理',done:'已完成',cancelled:'取消這項待辦'},item.status)+input('負責人','owner',item.owner,'required maxlength="100"')+input('期限（裝置時區）','due_at',A.localDateTime(item.due_at),'type="datetime-local" required')+text('備註','notes',item.notes,false,2000)+input('此次更新原因／完成依據','reason','','required maxlength="500"');
       endpoint=intent==='create'?'work-items':`work-items/${id}`;method=intent==='create'?'POST':'PATCH';payload=v=>intent==='create'?{title:v.title,kind:v.kind,owner:v.owner,due_at:new Date(v.due_at).toISOString(),source:v.source,notes:v.notes,quote_id:v.quote_id||null,booking_id:v.booking_id||null,document_id:v.document_id||null}:{status:v.status,owner:v.owner,due_at:new Date(v.due_at).toISOString(),notes:v.notes,reason:v.reason,expected_revision:item.revision};
     } else if(module==='bookings') {
@@ -102,7 +103,7 @@
       title='新增文件清單項目';body=select('文件種類','kind',docKinds)+input('文件名稱','title','','required maxlength="500"')+check('required','此文件是交付前必備項目。',true,false)+bookingSelector(b);
       endpoint='documents';payload=v=>({kind:v.kind,title:v.title,required:v.required==='on',booking_id:v.booking_id||null});
     } else if(intent==='document') {
-      title='核對文件／補件';body=note(item.title)+check('required','此文件是交付前必備項目。',item.required,false)+bookingSelector(b,item.booking_id)+input('修改必備標示／關聯的原因（未變更可留白）','reason','','maxlength="500"')+select('文件狀態','status',{missing:'待補／需重新核對',ready:'文件已備妥'},item.status)+text('對客說明（不要填內部成本或帳密）','customer_text',item.customer_text,false,6000)+input('對客文件連結（HTTPS；不含帳密；可留白）','customer_url',item.customer_url||'','type="url" maxlength="2000"')+evidence('我已人工核對此文件狀態、內容、日期與旅客；連結並未由系統自動驗證。');
+      title='核對文件／補件';body=note(item.title)+check('required','此文件是交付前必備項目。',item.required,false)+bookingSelector(b,item.booking_id,item.kind)+input('修改必備標示／關聯的原因（未變更可留白）','reason','','maxlength="500"')+select('文件狀態','status',{missing:'待補／需重新核對',ready:'文件已備妥'},item.needs_recheck?'missing':item.status)+text('對客說明（不要填內部成本或帳密）','customer_text',item.customer_text,false,6000)+input('對客文件連結（HTTPS；不含帳密；可留白）','customer_url',item.customer_url||'','type="url" maxlength="2000"')+evidence('我已人工核對此文件狀態、內容、日期與旅客；連結並未由系統自動驗證。');
       endpoint=`documents/${id}`;method='PATCH';payload=v=>({...proof(v),expected_revision:item.revision,status:v.status,customer_text:v.customer_text,customer_url:v.customer_url||null,required:v.required==='on',booking_id:v.booking_id||null,reason:v.reason});
     } else if(intent==='pack') {
       title='產生行前摘要新版';body=b.warnings.map(notice).join('')+input('行前摘要名稱','title',`${b.case.destination||'旅行'}行前資料`,'required maxlength="200"')+note('保留當下報價、訂購與文件版本。缺件會生成草稿，不能標記交付。摘要不會合併原始附件或自動寄送。');endpoint='pretrip';payload=v=>({title:v.title});submit='產生摘要新版';
@@ -110,15 +111,25 @@
       title='記錄已人工交付';body=note(`第 ${item.version} 版 · ${item.title}`)+input('實際交付管道','channel','','required maxlength="100"')+evidence('我已核對完整摘要及電子機票／住宿憑證等原件，並實際交付給客人。');endpoint=`pretrip/${id}/deliver`;payload=v=>({...proof(v),channel:v.channel});submit=title;
     }
     if(!payload)throw new Error('不支援的操作，請重新開啟案件。');
-    A.openSheet(title,formHTML(body,submit),true,module==='tasks'?'deadlines':module==='bookings'?'confirmations':module==='ledger'?'payments':module,c);
+    if(!A.openSheet(title,formHTML(body,submit),true,module==='tasks'?'deadlines':module==='bookings'?'confirmations':module==='ledger'?'payments':module,c,generation))return;
     const form=$('#operationForm'), stamp=A.currentSheetGeneration();
     form.operation={c,module,endpoint,method,payload,values,stamp,intent:null,origin:trigger?.closest('#homeDeadlines,#allDeadlines')?.id||'module',id};
-    A.setSheetBack(()=>leaveForm(()=>returnToOrigin(form.operation,`[data-action="ops-form"][data-intent="${intent}"]${id?`[data-id="${id}"]`:''}`)),form.operation.origin==='homeDeadlines'?'返回工作總覽':form.operation.origin==='allDeadlines'?'返回全部待辦':'返回'+labels[module]);
-    form.addEventListener('input',()=>{form.dataset.dirty='true';});
+    A.setSheetBack(()=>returnToOrigin(form.operation,`[data-action="ops-form"][data-intent="${intent}"]${id?`[data-id="${id}"]`:''}`),form.operation.origin==='homeDeadlines'?'返回工作總覽':form.operation.origin==='allDeadlines'?'返回全部待辦':'返回'+labels[module]);
+    form.addEventListener('change',event=>{
+      if(event.target.name==='task_template'&&event.target.value) {
+        form.elements.title.value=event.target.selectedOptions[0].textContent;
+        form.elements.kind.value=event.target.value;
+      }
+      if(event.target.name==='kind'&&form.elements.booking_id&&module==='pretrip') {
+        const needed={e_ticket:'flight',hotel_voucher:'hotel'}[event.target.value];
+        [...form.elements.booking_id.options].forEach(o=>{o.disabled=Boolean(o.value&&needed&&o.dataset.kind!==needed);});
+        if(form.elements.booking_id.selectedOptions[0]?.disabled)form.elements.booking_id.value='';
+      }
+    });
   }
   async function returnToOrigin(op,focus='') {
     if(op.origin==='module')return openModule(op.c,op.module,focus);
-    A.closeSheet();
+    if(!A.closeSheet())return;
     if(op.origin==='homeDeadlines')await loadHomeDeadlines();else await loadTasks();
     requestAnimationFrame(()=>{
       const target=$(`#${op.origin} [data-id="${op.id}"]`)||$(op.origin==='homeDeadlines'?'#deadlineHomeTitle':'#tasksTitle');
@@ -165,7 +176,7 @@
       $('#homeDeadlines').innerHTML=urgent.length?urgent.map(renderTask).join(''):'<div class="empty-state">目前沒有逾期或今天到期的待辦。之後的期限可到「待辦」查看。</div>';
     }catch(err){if(generation===homeGeneration&&!(err instanceof A.ReauthenticationError))renderLoadError('homeDeadlines',err,'ops-refresh-home');}
   }
-  A.registerAction('ops-open',el=>openModule(el.dataset.caseId,el.dataset.module));
+  A.registerAction('ops-open',el=>openModule(el.dataset.caseId,el.dataset.module,el.dataset.recordId?`[data-id="${CSS.escape(el.dataset.recordId)}"]`:''));
   A.registerAction('ops-form',el=>openForm(el.dataset.caseId,el.dataset.module,el.dataset.intent,el.dataset.id||'',el));
   A.registerAction('ops-document',openDocument);
   A.registerAction('ops-refresh-tasks',loadTasks);
@@ -174,5 +185,4 @@
   A.registerView('tasks',loadTasks);
   A.registerHomeLoader(loadHomeDeadlines);
   $('#taskStatusFilter').addEventListener('change',loadTasks);
-  $('#sheet').addEventListener('cancel',event=>{if($('#operationForm')?.dataset.dirty==='true'&&!confirm('尚未儲存這次填寫內容，要離開嗎？'))event.preventDefault();});
 })();

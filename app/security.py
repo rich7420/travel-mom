@@ -46,7 +46,7 @@ def operator_authorized(request: Request) -> bool:
     expected=settings.admin_token
     if not expected: return not is_production()
     supplied=presented_admin_token(request)
-    return bool(supplied) and hmac.compare_digest(supplied,expected)
+    return bool(supplied) and hmac.compare_digest(supplied.encode("utf-8"), expected.encode("utf-8"))
 
 # Exact exemptions only. Channel handlers authenticate their own signed payloads.
 _ACCESS_EXEMPT = {("GET", "/livez"), ("POST", "/webhooks/line"), ("POST", "/webhooks/telegram")}

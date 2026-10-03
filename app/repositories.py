@@ -8,6 +8,7 @@ from typing import Any
 from app.config import settings
 from app.db import audit, connect
 from app.models import (
+    TRIP_CONTEXT_FIELDS,
     ActionType,
     ApprovalRequest,
     BrowserAttempt,
@@ -88,7 +89,7 @@ class CaseRepo:
         audit(case.id, "system", "case.created", case.model_dump(mode="json"), ts)
         return case
 
-    def patch(self, case_id: str, patch: dict[str, Any]) -> TripCase:
+    def patch(self, case_id: str, patch: dict[str, Any], actor: str = "system") -> TripCase:
         patch = TripCasePatch.model_validate(patch).model_dump(exclude_unset=True, mode="json")
         with connect() as db:
             # Validate the merged record before any write and serialize competing updates.
@@ -104,6 +105,14 @@ class CaseRepo:
             merged = {**current.model_dump(mode="json"), **patch, "updated_at": now_iso()}
             TripCaseCreate.model_validate(merged)
             updated = TripCase.model_validate(merged)
+            before = current.model_dump(mode="json")
+            after = updated.model_dump(mode="json")
+            if current.status in {CaseStatus.BOOKING, CaseStatus.CONFIRMED} and any(before[k] != after[k] for k in TRIP_CONTEXT_FIELDS):
+                # A travel edit wins over an unchanged booking/confirmed status.
+                # Explicit travelling/closed transitions remain operator decisions.
+                if updated.status in {CaseStatus.BOOKING, CaseStatus.CONFIRMED}:
+                    updated.status = CaseStatus.QUOTING
+                    patch["status"] = "quoting"
             serialized = updated.model_dump(mode="json")
             assignments, values = [], []
             for key in [*patch, "updated_at"]:
@@ -115,7 +124,8 @@ class CaseRepo:
                 values.append(value)
             values.append(case_id)
             db.execute(f"UPDATE trip_cases SET {', '.join(assignments)} WHERE id=?", values)
-        audit(case_id, "system", "case.updated", patch, updated.updated_at)
+            db.execute("INSERT INTO audit_log(case_id,actor,action,payload_json,created_at) VALUES(?,?,?,?,?)",
+                       (case_id, actor, "case.updated", json.dumps(patch, ensure_ascii=False), updated.updated_at))
         return updated
 
 

@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 from app.config import settings
 from app.db import audit
-from app.models import TripCase, now_iso
+from app.models import TRIP_CONTEXT_FIELDS, TripCase, now_iso
 from app.repositories import browser_attempt_repo, browser_task_repo, case_repo, flight_search_run_repo, hotel_search_run_repo
 from app.services.hotel_compare import compare_official_hotel_tasks
 from app.services.official_compare import compare_official_flight_tasks
@@ -24,9 +24,7 @@ AIRPORT_CHOICES = {
 
 def trip_snapshot(case: TripCase) -> dict:
     data = case.model_dump(mode="json")
-    return {key: data[key] for key in (
-        "origin", "destination", "depart_date", "return_date", "adults", "children", "infants", "children_ages",
-    )}
+    return {key: data[key] for key in TRIP_CONTEXT_FIELDS}
 
 
 def require_case(case_id: str) -> TripCase:

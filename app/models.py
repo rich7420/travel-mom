@@ -8,6 +8,9 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
+TRIP_CONTEXT_FIELDS = ("origin", "destination", "depart_date", "return_date", "adults", "children", "infants", "children_ages")
+
+
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
