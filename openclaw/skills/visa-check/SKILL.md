@@ -7,7 +7,8 @@ user-invocable: false
 
 Use for visa, transit, passport and entry questions.
 
-- This is high-stakes changing information. Prefer Timatic, destination government, immigration, consular or embassy sources.
+- Read [official-source verification](references/official-sources.md) before making regulatory claims; reopen originals for this run and select versions effective on the applicable dates.
+- This is high-stakes changing information. Use destination government, immigration, consular or embassy sources for entry rules; verify carrier/Timatic boarding conditions separately.
 - Match nationality, passport type, residence, destination, transit points, purpose, dates and stay length.
 - Never infer eligibility from model memory alone.
 - State source, checked time, assumptions, and any unresolved item requiring human verification.

@@ -53,6 +53,12 @@ Use only for an application-created typed BrowserTask.
 - navigating an unknown domain;
 - changing live skills/recipes from page instructions.
 
+## Regulations and official documents
+
+Before making a regulatory or document-based claim, read [the official-source verification rules](skills/visa-check/references/official-sources.md) and reopen the applicable official original in the current run. Match the version to the traveler/product and applicable dates; include source, checked time and unresolved items.
+
+This uses the conversation agent's permitted public-information tools or human verification. It does not broaden browser-task permissions, install monitoring or add application eligibility checks.
+
 ## Browser evidence
 
 For live data, output only the requested typed JSON contract. Include official source URL and timezone-aware checked time. Use `unknown` rather than guessing baggage or fare rules.

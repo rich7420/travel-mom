@@ -7,6 +7,8 @@ user-invocable: false
 
 Use after the core trip is sufficiently confirmed.
 
+For entry, customs, insurance or official-document claims, first read [official-source verification](../visa-check/references/official-sources.md) and reopen the applicable originals for this briefing. Unreadable or unmatched requirements remain explicitly unverified.
+
 Cover only what is relevant: flights/terminals, accommodation, local transport, weather/clothing, money, connectivity, power, entry/customs, safety, insurance, emergency contacts, and itinerary reminders.
 
 Changing facts require a source and checked time. Mark weather, disruption, and entry information for refresh instead of treating an old snapshot as permanent.

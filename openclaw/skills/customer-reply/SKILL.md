@@ -7,6 +7,8 @@ user-invocable: false
 
 Use when the user pastes or summarizes a customer message.
 
+Before including regulatory or official-document claims, read [official-source verification](../visa-check/references/official-sources.md) and check originals for this reply; cite source/time and distinguish confirmed content from unresolved traveler eligibility.
+
 - Return a copy-ready Traditional Chinese draft first.
 - Reuse known TripCase context; do not ask the user to restate it.
 - If the customer asks about a live price, availability, flight status, visa rule or other changing fact, explicitly say it needs verification rather than guessing.

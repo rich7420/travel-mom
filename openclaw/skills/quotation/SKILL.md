@@ -7,6 +7,8 @@ user-invocable: false
 
 Use for quotation assembly.
 
+For contract, cancellation, insurance or regulatory conditions, read [official-source verification](../visa-check/references/official-sources.md). Check the applicable official document and exact supplier/product terms for this version; generic templates do not establish a particular refund entitlement.
+
 - Keep supplier/internal cost and margin separate from the customer-facing quote.
 - Every mutable price should carry source, observed time, currency, included taxes/fees, product/fare type, and validity if known.
 - Do not silently reuse stale prices.

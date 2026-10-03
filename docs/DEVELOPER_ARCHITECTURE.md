@@ -132,6 +132,8 @@ The current router supports menu/intake/radar/case listing. Flight entry redirec
 
 ## Security boundaries and limits
 
+Regulatory/document claims in the optional agent Skills follow [official-source verification](../openclaw/skills/visa-check/references/official-sources.md): fresh reads, applicable-date/version matching, provenance and unresolved conditions. The registry is a maintenance snapshot; there is no runtime regulatory provider, freshness enforcement, background monitoring or implemented visa-eligibility workflow. Copying the complete skill tree preserves shared reference links; deployment must separately install these instructions.
+
 - `/api/*` requires a shared operator token when configured; production startup rejects a missing token. Development without a token is open to clients that can reach the server. There is no per-user identity, role separation, or case ownership.
 - Mom Mode stores the operator token in session storage. Gateway/channel credentials remain on the backend. `/admin` is interface separation, not an authorization role.
 - Mom Mode has a strict CSP; the legacy admin interface permits inline scripts/styles. API responses have `Cache-Control: no-store`. The manifest is a shell without an offline service worker.

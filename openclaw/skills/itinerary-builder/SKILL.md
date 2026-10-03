@@ -7,6 +7,8 @@ user-invocable: false
 
 Use when the user wants a day-by-day itinerary.
 
+For regulatory, entry, customs or official operating-document claims, read [official-source verification](../visa-check/references/official-sources.md) and check current originals against the actual route and dates before including them.
+
 - Reuse TripCase dates, party, budget, mobility, children/elderly, food and pace preferences.
 - Prefer realistic geographic clusters and travel times; flag anything that still needs a live route/opening-hours check.
 - Keep alternatives for rain, closure, or fatigue when useful.

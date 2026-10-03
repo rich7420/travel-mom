@@ -152,7 +152,9 @@ OPENCLAW_BROWSER_MODEL=openclaw/mom-travel-browser
 OPENCLAW_BROWSER_PROFILE=openclaw
 ```
 
-Copy the workspace Skills from `openclaw/skills/` into the Mom Travel workspace and adapt `openclaw/openclaw.example.json5` to the host setup.
+Copy the entire `openclaw/skills/` tree recursively, including nested `references/`, into the Mom Travel workspace, retain sibling skill directories, and copy `openclaw/AGENTS.md` as workspace rules. Adapt `openclaw/openclaw.example.json5` to the host setup.
+
+The [official-source policy](openclaw/skills/visa-check/references/official-sources.md) requires fresh original-source checks for regulatory/document claims, applicable-date matching and explicit unresolved items. Its dated registry is discovery guidance, not a live eligibility service; these repository instructions do not prove a Gateway installation has been updated.
 
 The conversational agent does not get browser/shell/write tools. The browser worker gets only the bounded browser surface and typed BrowserTasks.
 
