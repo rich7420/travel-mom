@@ -70,7 +70,8 @@ from app.workflow_models import ManualOptionCreate, CaseOptionSelection
 from app.workflow_repository import case_workflow_repo
 from app.services.replies import draft_customer_reply
 from app.services.scoring import rank_flights, rank_hotels
-from app.security import operator_authorized, security_headers_for_path, validate_runtime_settings
+from app.security import operator_authorized, security_headers_for_path, validate_runtime_settings, is_production, access_exempt, access_requires_admin, verify_access_origin
+from app.cloudflare_access import AccessVerifier
 
 
 logger = logging.getLogger("mom_travel_desk")
@@ -80,10 +81,14 @@ logger = logging.getLogger("mom_travel_desk")
 async def lifespan(app: FastAPI):
     validate_runtime_settings()
     init_db()
+    app.state.access_verifier = AccessVerifier(settings) if settings.auth_mode == "cloudflare" else None
     yield
 
 
-app = FastAPI(title="Mom Travel Desk POC", version="0.8.1", lifespan=lifespan)
+app = FastAPI(title="Mom Travel Desk POC", version="0.8.1", lifespan=lifespan,
+              docs_url=None if is_production() else "/docs",
+              redoc_url=None if is_production() else "/redoc",
+              openapi_url=None if is_production() else "/openapi.json")
 
 
 @app.middleware("http")
@@ -108,7 +113,19 @@ async def protect_operator_api(request: Request, call_next):
                 response.headers[key] = value
             return response
 
-    if not operator_authorized(request):
+    if settings.auth_mode == "cloudflare" and not access_exempt(request):
+        try:
+            request.state.identity = await app.state.access_verifier.verify(request.headers.get("cf-access-jwt-assertion", ""))
+            if access_requires_admin(request) and request.state.identity.role != "admin":
+                raise HTTPException(403, "administrator access required")
+            verify_access_origin(request)
+        except HTTPException as exc:
+            response = JSONResponse(status_code=exc.status_code, content={"detail": exc.detail, "auth_mode": "cloudflare"})
+        else:
+            response = await call_next(request)
+    elif settings.auth_mode == "cloudflare" or request.url.path == "/api/auth/session":
+        response = await call_next(request)
+    elif not operator_authorized(request):
         response = JSONResponse(
             status_code=401,
             content={"detail": "operator authentication required"},
@@ -119,7 +136,7 @@ async def protect_operator_api(request: Request, call_next):
 
     for key, value in security_headers_for_path(request.url.path).items():
         response.headers.setdefault(key, value)
-    if request.url.path.startswith("/api/"):
+    if request.url.path.startswith("/api/") or settings.auth_mode == "cloudflare":
         response.headers.setdefault("Cache-Control", "no-store")
     return response
 MOM_STATIC = Path(__file__).parent / "mom_static"
@@ -136,6 +153,19 @@ def index():
 @app.get("/admin")
 def admin_index():
     return FileResponse(ADMIN_STATIC / "index.html")
+
+
+@app.get("/livez")
+def liveness():
+    return {"ok": True}
+
+
+@app.get("/api/auth/session")
+def auth_session(request: Request):
+    if settings.auth_mode == "cloudflare":
+        identity = request.state.identity
+        return {"mode": "cloudflare", "email": identity.email, "role": identity.role, "logout_url": "/cdn-cgi/access/logout"}
+    return {"mode": "token"}
 
 
 @app.get("/health", response_model=Health)
