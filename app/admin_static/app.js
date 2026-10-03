@@ -5,17 +5,42 @@ let airlineRegistry = [];
 let lastFlightTaskIds = [];
 let lastFlightRunId = null;
 let hotelNetworks = [];
+let authMode = null;
 let lastHotelRunId = null;
 let lastHotelTaskIds = [];
 let lastHotelSearchDraft = null;
 
+function showAdminLogin() {
+  const dialog=document.getElementById('adminLoginDialog');
+  if(!dialog.open)dialog.showModal();
+}
+document.getElementById('adminLoginDialog').addEventListener('cancel', event => event.preventDefault());
+document.getElementById('adminRelogin').addEventListener('click',()=>location.reload());
+
+class ReauthenticationError extends Error {
+  constructor() { super('login session expired'); this.name = 'ReauthenticationError'; }
+}
+// Inline async actions without a local catch still show the dedicated login dialog.
+window.addEventListener('unhandledrejection', event => {
+  if (event.reason instanceof ReauthenticationError) event.preventDefault();
+});
+
 async function api(path, opts = {}, retriedAuth = false) {
-  const token = sessionStorage.getItem('travelDeskAdminToken') || '';
+  const token = authMode !== 'token' ? '' : sessionStorage.getItem('travelDeskAdminToken') || '';
   const headers = {'Content-Type': 'application/json', ...(opts.headers || {})};
   if (token) headers['X-Travel-Desk-Admin-Token'] = token;
-  const response = await fetch(path, {...opts, headers});
+  const response = await fetch(path, {...opts, headers, redirect:'manual'});
+  if (response.type === 'opaqueredirect' || response.status === 0 || (response.status === 401 && authMode === 'cloudflare')) {
+    showAdminLogin();
+    throw new ReauthenticationError();
+  }
 
   if (response.status === 401 && !retriedAuth) {
+    const error = await response.clone().json().catch(()=>({}));
+    if (error.auth_mode === 'cloudflare') {
+      showAdminLogin();
+      throw new ReauthenticationError();
+    }
     const supplied = window.prompt('這是管理員工作台，請輸入存取碼：');
     if (supplied) {
       sessionStorage.setItem('travelDeskAdminToken', supplied);
@@ -28,7 +53,7 @@ async function api(path, opts = {}, retriedAuth = false) {
     try {
       const parsed = JSON.parse(raw);
       throw new Error(parsed.detail || raw);
-    } catch (error) {
+    } catch (error) { if (error instanceof ReauthenticationError) return;
       if (error instanceof SyntaxError) throw new Error(raw);
       throw error;
     }
@@ -63,9 +88,12 @@ function openModal(title, html) {
 }
 
 async function health() {
+  const session = await api('/api/auth/session');
+  authMode = session.mode;
+  if (authMode === 'cloudflare') {sessionStorage.removeItem('travelDeskAdminToken');sessionStorage.removeItem('travelDeskToken');}
   const state = await api('/health');
-  const mode = state.openclaw_enabled ? 'OpenClaw 已連線' : '離線 POC 模式';
-  document.getElementById('health').textContent = `${mode} · v${state.app_version}`;
+  const mode = state.openclaw_enabled ? '自動查詢已設定' : '網頁工作模式';
+  document.getElementById('health').textContent = mode;
 }
 
 async function loadAirlines() {
@@ -254,7 +282,7 @@ async function submitOfficialFlightSearch() {
   try {
     const plan = await api('/api/browser/flight-search', {method: 'POST', body: JSON.stringify(payload)});
     output.innerHTML = renderTaskPlan(plan);
-  } catch (error) {
+  } catch (error) { if (error instanceof ReauthenticationError) return;
     output.innerHTML = `<p class="danger-note">${esc(error.message)}</p>`;
   }
 }
@@ -301,7 +329,7 @@ async function runAllFlightTasks() {
       if (element?.querySelector('.task-status')) element.querySelector('.task-status').textContent = `${task.status || 'unknown'} · ${task.review_state || ''}`;
     });
     renderFlightComparison(result.comparison);
-  } catch (error) {
+  } catch (error) { if (error instanceof ReauthenticationError) return;
     const progress = document.getElementById('batchProgress');
     if (progress) progress.outerHTML = `<p class="danger-note">${esc(error.message)}</p>`;
   }
@@ -349,7 +377,7 @@ async function selectAndRevalidate(searchTaskId, optionId) {
       <p class="ok-note">系統已鎖定原航班組合，重新進官方網站查相同航班、日期、票價產品與條件。</p>
       ${taskCard(task)}
       <p><button class="primary" onclick='runRevalidation(${jsArg(task.id)})' >現在執行重新驗價</button></p>`);
-  } catch (error) {
+  } catch (error) { if (error instanceof ReauthenticationError) return;
     openModal('無法重新驗價', `<p class="danger-note">${esc(error.message)}</p>`);
   }
 }
@@ -359,7 +387,7 @@ async function runRevalidation(taskId) {
   try {
     await api(`/api/browser/tasks/${taskId}/run`, {method: 'POST'});
     await showRevalidation(taskId);
-  } catch (error) {
+  } catch (error) { if (error instanceof ReauthenticationError) return;
     openModal('重新驗價需要處理', `<p class="danger-note">${esc(error.message)}</p><p><button onclick='showBrowserTask(${jsArg(taskId)})' >查看任務</button></p>`);
   }
 }
@@ -388,7 +416,7 @@ async function runPreflight(taskId, acceptanceRequired) {
       method: 'POST', body: JSON.stringify({revalidation_task_id: taskId, accept_price_change: accepted}),
     });
     renderPreflight(result);
-  } catch (error) {
+  } catch (error) { if (error instanceof ReauthenticationError) return;
     openModal('付款前檢查失敗', `<p class="danger-note">${esc(error.message)}</p>`);
   }
 }
@@ -494,7 +522,7 @@ async function submitOfficialHotelSearch() {
     output.innerHTML = '<p class="muted">建立 Hotel Search Run 中…</p>';
     const plan = await api('/api/browser/hotel-search', {method: 'POST', body: JSON.stringify(payload)});
     output.innerHTML = renderHotelTaskPlan(plan);
-  } catch (error) {
+  } catch (error) { if (error instanceof ReauthenticationError) return;
     const canAttest = String(error.message).includes('尚未信任') && lastHotelSearchDraft?.official_url;
     output.innerHTML = `<p class="danger-note">${esc(error.message)}</p>${canAttest ? `
       <div class="attestation-card">
@@ -529,7 +557,7 @@ async function approveHotelSiteAndRetry() {
     const plan = await api('/api/browser/hotel-search', {method: 'POST', body: JSON.stringify(payload)});
     const output = document.getElementById('hotelTaskOut');
     if (output) output.innerHTML = `<p class="ok-note">已保存 human-approved site grant。</p>${renderHotelTaskPlan(plan)}`;
-  } catch (error) {
+  } catch (error) { if (error instanceof ReauthenticationError) return;
     const output = document.getElementById('hotelTaskOut');
     if (output) output.innerHTML = `<p class="danger-note">${esc(error.message)}</p>`;
   }
@@ -550,7 +578,7 @@ async function runHotelTasks() {
   try {
     const result = await api(`/api/browser/hotel-runs/${lastHotelRunId}/run`, {method: 'POST'});
     renderHotelComparison(result.comparison);
-  } catch (error) {
+  } catch (error) { if (error instanceof ReauthenticationError) return;
     openModal('查房需要處理', `<p class="danger-note">${esc(error.message)}</p>`);
   }
 }
@@ -567,7 +595,7 @@ function renderHotelComparison(comparison) {
   const groups = comparison.currency_groups || [];
   let html = `<p class="danger-note">${esc(comparison.warning || '')}</p>`;
   if (comparison.mixed_currency) html += '<p class="manual">⚠️ 不同幣別分開比較，不偷偷換匯。</p>';
-  if (!groups.length) html += '<p class="muted">還沒有通過 official-domain 與 hotel-search-v1 驗證的房型。</p>';
+  if (!groups.length) html += '<p class="muted">還沒有通過官網來源與住宿條件驗證的房型。</p>';
   for (const group of groups) {
     html += `<h3>${esc(group.currency)} 房型比較</h3>`;
     html += (group.ranked || []).map((row, index) => {
@@ -608,7 +636,7 @@ async function selectHotelAndRevalidate(searchTaskId, optionId) {
       <p class="ok-note">已鎖定同一飯店、房型、床型與 rate plan。下一步只重新確認最新總價、稅費、早餐與取消條件。</p>
       ${taskCard(task)}
       <p><button class="primary" onclick='runHotelRevalidation(${jsArg(task.id)})'>現在重新驗價</button></p>`);
-  } catch (error) {
+  } catch (error) { if (error instanceof ReauthenticationError) return;
     openModal('無法建立飯店重新驗價', `<p class="danger-note">${esc(error.message)}</p>`);
   }
 }
@@ -618,7 +646,7 @@ async function runHotelRevalidation(taskId) {
   try {
     await api(`/api/browser/tasks/${taskId}/run`, {method: 'POST'});
     await showHotelRevalidation(taskId);
-  } catch (error) {
+  } catch (error) { if (error instanceof ReauthenticationError) return;
     openModal('飯店重新驗價需要處理', `<p class="danger-note">${esc(error.message)}</p><p><button onclick='showBrowserTask(${jsArg(taskId)})'>查看任務</button></p>`);
   }
 }
@@ -647,7 +675,7 @@ async function runHotelPreflight(taskId, acceptanceRequired) {
       method: 'POST', body: JSON.stringify({revalidation_task_id: taskId, accept_price_or_terms_change: accepted}),
     });
     renderHotelPreflight(result);
-  } catch (error) {
+  } catch (error) { if (error instanceof ReauthenticationError) return;
     openModal('訂房付款前檢查失敗', `<p class="danger-note">${esc(error.message)}</p>`);
   }
 }
@@ -695,7 +723,7 @@ async function revokeHotelGrant(grantId) {
   try {
     await api(`/api/hotels/site-grants/${grantId}/revoke`, {method: 'POST'});
     await showHotelTrust();
-  } catch (error) {
+  } catch (error) { if (error instanceof ReauthenticationError) return;
     alert(error.message);
   }
 }
@@ -730,7 +758,7 @@ async function runBrowserTask(id) {
     if (task.expected_schema === 'flight-revalidation-v1') await showRevalidation(id);
     else if (task.expected_schema === 'hotel-revalidation-v1') await showHotelRevalidation(id);
     else showTaskResult(task, []);
-  } catch (error) {
+  } catch (error) { if (error instanceof ReauthenticationError) return;
     if (element) element.insertAdjacentHTML('beforeend', `<p class="danger-note">${esc(error.message)}</p>`);
   }
 }
@@ -766,7 +794,7 @@ async function ingestTaskResult(taskId) {
   try {
     await api(`/api/browser/tasks/${taskId}/ingest`, {method: 'POST', body: JSON.stringify({raw_text: raw})});
     await showBrowserTask(taskId);
-  } catch (error) {
+  } catch (error) { if (error instanceof ReauthenticationError) return;
     alert(error.message);
   }
 }
@@ -811,7 +839,7 @@ async function showBrowserLab() {
       <span>Attempts ${row.attempts_total}</span>
       <span>結構通過 ${row.contract_validation_rate == null ? '-' : Math.round(row.contract_validation_rate * 100) + '%'}</span>
       <span>可用結果 ${row.usable_success_rate == null ? '-' : Math.round(row.usable_success_rate * 100) + '%'}</span>
-      <small>Flight search ${row.search_tasks || 0} / hotel search ${row.hotel_search_tasks || 0} · Recipe ${(row.recipe_versions || []).join(', ') || '-'} · OpenClaw ${row.openclaw_attempts} · 離線貼入 ${row.lab_ingest_attempts} · 人工終止 ${row.manual_terminal_tasks} · 驗證錯誤 ${row.validation_error_attempts} · 結果狀態 ${esc(JSON.stringify(row.result_statuses || {}))}</small>
+      <small>Flight search ${row.search_tasks || 0} / hotel search ${row.hotel_search_tasks || 0} · OpenClaw ${row.openclaw_attempts} · 離線貼入 ${row.lab_ingest_attempts} · 人工終止 ${row.manual_terminal_tasks} · 驗證錯誤 ${row.validation_error_attempts} · 結果狀態 ${esc(JSON.stringify(row.result_statuses || {}))}</small>
     </div>`).join('') || '<p class="muted">還沒有 Browser Lab 資料。</p>';
   openModal('Browser Lab', `
     <p class="ok-note">這裡量測每家航空官網的成功率、人工介入與 validator 問題。離線貼入結果只測 schema；真正價值要看 OpenClaw 實機 attempts。</p>
@@ -836,4 +864,4 @@ async function showReadiness() {
     <p class="manual">${esc(report.disclaimer)}</p>`);
 }
 
-Promise.all([health(), loadAirlines(), loadHotelNetworks(), loadCases(), loadRadar()]);
+health().then(()=>Promise.all([loadAirlines(), loadHotelNetworks(), loadCases(), loadRadar()])).catch(error=>{if(error instanceof ReauthenticationError)return;document.getElementById('health').textContent=error.message || '暫時無法連線';});

@@ -180,7 +180,7 @@ Executed on 2026-10-03:
 | --- | --- |
 | Editable installation using tested constraints | Passed after packaging fix |
 | Wheel build, package scope and static assets | Passed; live wheel-only deployment not validated |
-| Current pytest suite | 95 passed on Python 3.12 and 3.11.14, including the original 62 and 33 new regression cases |
+| Current pytest suite | 130 passed on Python 3.12 and 3.11.14, including 35 Access authentication cases |
 | Python compilation and both JavaScript syntax checks | Passed |
 | Local Skill audit | 23 Skills passed |
 | Airline recipe audit | 8 recipes and 16 regression cases passed |
@@ -196,3 +196,14 @@ This increment completes case validation, intake lifecycle, prefills/party prese
 Legacy cases are read without newly introduced cross-field constraints so inconsistent historical dates do not break listing or home. Creates and merged patches enforce those constraints before SQL writes; operators can repair historical cases using the edit form. Concurrent final intake requests and atomic cross-table official/Mom selection writes remain follow-up hardening work.
 
 Read-only external verification: Claude Code was chosen for high complexity (UI/API/schema/services, >150 changed non-test lines); final verdict APPROVE after three rounds. No unresolved blockers/majors. Remaining minor cleanup and concurrency hardening are recorded in the current review. Usage gate was unknown (`no usage snapshot`), so review proceeded under the supplied policy.
+
+## UI refinement and public tunnel authentication increment
+
+Visible versions are removed from Mom and admin UIs and retained in HTML comments and engineering metadata. Mom Mode uses warm paper surfaces, a navy hero, terracotta accents and code-native SVG icons. A 200px desktop sidebar becomes bottom navigation at 900px; 901–1200px uses two shortcut columns and a stacked workspace, while larger desktop screens use four shortcuts and two workspace columns. The general workflow rail is explicitly descriptive, not live booking progress. Priority cases have visible sequence numbers and list semantics. Compact case rows and collapsed search history preserve large text and touch controls. Navigation synchronizes aria-current and focuses the destination heading; background refresh does not move focus.
+
+Optional `AUTH_MODE=cloudflare` validates Access RS256 JWTs in `app/cloudflare_access.py` using a fixed issuer/audience and bounded asynchronous JWKS cache; `app/security.py` owns exact exemptions, operator route allowlists, admin defaults and origin checks. All paths are protected except minimal `GET /livez` and exact signed-channel webhook POSTs. `/api/auth/session` supplies mode and safe identity metadata for web login/logout UI. Token mode remains a local/private compatibility path. Production disables interactive API docs and OpenAPI. Docker healthcheck uses `/livez`; detailed `/health` remains authenticated in Access mode. Accounts share this agency's cases; no multi-tenant isolation is claimed. See [deployment verification and limits](CLOUDFLARE_ACCESS_DEPLOYMENT.md).
+
+
+Both frontends discover `/api/auth/session` before reading legacy credentials. Access mode clears both legacy sessionStorage keys and uses browser-managed Access cookies; no JWT is stored by UI code. Expired sessions or manual opaque redirects show a named, non-dismissible login dialog. A dedicated reauthentication error prevents error handlers from replacing case lists, drafts or form contents; only the explicit login button reloads. Ordinary failures still render their normal error states. Admin inline async handlers suppress only already-handled reauthentication rejections.
+
+UI validation: 16 headless Chrome checks passed, including 390px large/extra-large fonts, 768/1024px extra-large fonts, desktop layout, version hiding, empty/error states, role visibility, credential clearing, expired-session data preservation, opaque redirects and Escape-key persistence. The full three-customer/manual-offer/selection/draft-copy/reload regression also passed. See [design QA](../design/qa.md). Real Access deployment, live supplier sessions and a manual screen-reader audit remain unverified.

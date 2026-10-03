@@ -18,6 +18,12 @@ The review preview runs at <http://127.0.0.1:8001/> with a separate local databa
 
 OpenClaw is optional. The shared web backend now supports consecutive customer intake, validated case edits with infant/child-age preservation, saved search requirements, manual supplier offers, comparison and persistent selection, and editable/copyable deterministic customer drafts. Expired, demo, changed-case or replaced offers cannot supply active quote amounts. Internal manual supplier/source metadata stays out of drafts. See the current handoff documents for operating limits; versioned quotes, deadlines and booking/pretrip delivery are next.
 
+## Interface and tunnel login preparation
+
+Mom Mode uses a warm paper and navy travel workspace, desktop side navigation, consistent line icons and numbered priority cases. The workspace adapts from two desktop columns to a single column with bottom navigation on mobile; secondary search history stays collapsed. Large text and touch controls remain available. See [visual and interaction QA](design/qa.md). Visible versions were removed from both UIs; engineering metadata and HTML comments retain the version.
+
+For future public Tunnel deployment use the optional Cloudflare Access mode, with signed JWT verification, explicit operator/admin accounts, protected pages/APIs, origin checks and bounded key refresh. See [deployment and InsForge decision](docs/CLOUDFLARE_ACCESS_DEPLOYMENT.md). The local preview remains in token/development mode; no public tunnel is provisioned.
+
 ## What changed in v0.8.1
 
 v0.8.1 is rebuilt from the last verified v0.7.1 baseline and uses the **same core database**. It does not create a second UX database.

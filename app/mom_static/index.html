@@ -1,9 +1,10 @@
 <!doctype html>
 <html lang="zh-Hant">
+<!-- Mom Travel Desk v0.8.1 -->
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#fffaf2">
+  <meta name="theme-color" content="#172b3a">
   <meta name="color-scheme" content="light">
   <title>旅行社小幫手</title>
   <link rel="manifest" href="/static/manifest.webmanifest">
@@ -13,10 +14,11 @@
   <div class="app-shell">
     <header class="topbar">
       <div>
-        <p class="eyebrow">Mom Travel Desk · v0.8.1</p>
-        <h1>旅行社小幫手</h1>
+        <p class="eyebrow">旅行社小幫手</p>
+        <h1 id="viewTitle">工作總覽</h1>
       </div>
       <div class="top-actions">
+        <span id="headerIdentity" class="header-identity hidden"></span>
         <span id="connectionBadge" class="status-badge status-neutral">連線中</span>
         <button class="icon-text-button" type="button" data-action="open-settings">設定</button>
       </div>
@@ -25,61 +27,69 @@
     <main id="main" tabindex="-1">
       <section id="view-today" class="view is-active" data-view="today" aria-labelledby="todayTitle">
         <div class="hero-card">
-          <div>
-            <p class="section-kicker">今天</p>
-            <h2 id="todayTitle">先把最重要的事情處理好</h2>
-            <p id="todaySummary" class="muted">正在整理今天的工作…</p>
+          <div class="hero-content">
+            <p class="section-kicker" id="todayDate">今天的旅行工作</p>
+            <h2 id="todayTitle">每一趟旅行，<br>從這裡接續。</h2>
+            <p id="todaySummary">正在整理今天的工作…</p>
+            <button id="primaryTodayAction" class="primary-button" type="button" data-action="new-case">＋ 新客人</button>
           </div>
-          <button id="primaryTodayAction" class="primary-button full" type="button" data-action="new-case">＋ 新客人</button>
+          <div class="hero-route" aria-hidden="true">
+            <svg viewBox="0 0 260 180" fill="none"><path d="M20 148C90 148 66 40 130 40s53 101 110 59" stroke="currentColor" stroke-width="1.5" stroke-dasharray="5 7"/><circle cx="20" cy="148" r="5" fill="currentColor"/><circle cx="240" cy="99" r="7" stroke="currentColor" stroke-width="2"/><path d="m127 29 14 20-11-3-8 7 5-24Z" fill="currentColor"/><path d="M38 46h35M56 28v35M185 148h23M197 137v23" stroke="currentColor" opacity=".35"/></svg>
+            <span>接續客人的下一步</span>
+          </div>
+          <div class="workflow-rail" aria-label="一般工作流程，非案件進度"><span><i>01</i> 接單</span><span><i>02</i> 查價</span><span><i>03</i> 選方案</span><span><i>04</i> 回客人</span></div>
         </div>
 
         <section class="section-block" aria-labelledby="quickTitle">
           <div class="section-heading">
             <h2 id="quickTitle">常用工作</h2>
-            <p>不用想怎麼下指令，直接選一件事。</p>
+            <p>接單、查價與回覆。</p>
           </div>
           <div class="quick-grid">
-            <button class="quick-card" type="button" data-action="new-case"><span class="emoji">👤</span><span><b>新客人</b><small>一步一步建立案件</small></span></button>
-            <button class="quick-card" type="button" data-action="customer-reply"><span class="emoji">💬</span><span><b>回覆客人</b><small>貼上訊息，我先幫您整理</small></span></button>
-            <button class="quick-card" type="button" data-action="flight-search"><span class="emoji">✈️</span><span><b>查機票</b><small>保存需求與實際價格</small></span></button>
-            <button class="quick-card" type="button" data-action="hotel-search"><span class="emoji">🏨</span><span><b>查飯店</b><small>核對人數與住宿條件</small></span></button>
+            <button class="quick-card" type="button" data-action="new-case"><span class="shortcut-icon" data-icon="person"></span><span><b>新客人</b><small>建立旅行需求</small></span></button>
+            <button class="quick-card" type="button" data-action="customer-reply"><span class="shortcut-icon" data-icon="reply"></span><span><b>回覆客人</b><small>整理回覆草稿</small></span></button>
+            <button class="quick-card" type="button" data-action="flight-search"><span class="shortcut-icon" data-icon="plane"></span><span><b>查機票</b><small>需求與參考方案</small></span></button>
+            <button class="quick-card" type="button" data-action="hotel-search"><span class="shortcut-icon" data-icon="hotel"></span><span><b>查飯店</b><small>房型與住宿條件</small></span></button>
           </div>
         </section>
 
-        <section class="section-block" aria-labelledby="priorityTitle">
+        <div class="workspace-grid">
+        <section class="section-block priority-section" aria-labelledby="priorityTitle">
           <div class="section-heading split">
-            <div><h2 id="priorityTitle">今天要處理</h2><p>我先依出發日與案件進度排序。</p></div>
+            <div><h2 id="priorityTitle">今天要處理</h2><p>依出發日與進度排序。</p></div>
             <button class="text-button" type="button" data-action="refresh-home">重新整理</button>
           </div>
-          <div id="priorityList" class="stack"><div class="skeleton-card">載入中…</div></div>
+          <div id="priorityList" class="stack" role="list" aria-label="優先處理案件"><div class="skeleton-card">載入中…</div></div>
         </section>
 
-        <section class="section-block" aria-labelledby="searchTitle">
-          <div class="section-heading"><h2 id="searchTitle">最近查價紀錄</h2><p>需求與結果會保留，實際方案可從案件選取。</p></div>
-          <div id="searchProgressList" class="stack"><p class="muted">目前沒有背景查價。</p></div>
-        </section>
-
+        <div class="workspace-side">
         <section class="section-block" aria-labelledby="recentTitle">
-          <div class="section-heading split"><div><h2 id="recentTitle">最近的客人</h2><p>不用重新交代前面的內容。</p></div><button class="text-button" type="button" data-nav="cases">查看全部</button></div>
+          <div class="section-heading split"><h2 id="recentTitle">最近案件</h2><button class="text-button" type="button" data-nav="cases">全部案件 →</button></div>
           <div id="recentCases" class="stack"><div class="skeleton-card">載入中…</div></div>
         </section>
+        <details class="section-block search-history">
+          <summary id="searchTitle">查價紀錄</summary>
+          <div id="searchProgressList" class="stack"><p class="muted">尚無查價紀錄。</p></div>
+        </details>
+        </div>
+        </div>
       </section>
 
       <section id="view-cases" class="view" data-view="cases" aria-labelledby="casesTitle">
-        <div class="page-title-row"><div><p class="section-kicker">案件</p><h2 id="casesTitle">客人與旅行案件</h2><p class="muted">點一下就能接著做，不用重講一次。</p></div><button class="primary-button compact" type="button" data-action="new-case">＋ 新客人</button></div>
+        <div class="page-title-row"><div><p class="section-kicker">案件</p><h2 id="casesTitle">旅行案件</h2><p class="muted">找到客人，接續處理。</p></div><button class="primary-button compact" type="button" data-action="new-case">＋ 新客人</button></div>
         <label class="search-field"><span>找客人</span><input id="caseSearchInput" type="search" autocomplete="off" placeholder="例如：陳小姐、東京"></label>
         <div id="caseList" class="stack"><div class="skeleton-card">載入中…</div></div>
       </section>
 
       <section id="view-new" class="view" data-view="new" aria-labelledby="newTitle">
-        <div class="page-title-row"><div><p class="section-kicker">新案件</p><h2 id="newTitle">我一次只問一題</h2><p class="muted">答到一半也可以先存起來，之後再繼續。</p></div></div>
+        <div class="page-title-row"><div><p class="section-kicker">新案件</p><h2 id="newTitle">建立新案件</h2><p class="muted">答到一半也可以先存起來，之後再繼續。</p></div></div>
         <div class="wizard-card">
           <div class="progress-meta"><span id="wizardProgressLabel">準備開始</span><button id="wizardResetButton" class="text-button" type="button" data-action="guided-reset">重新開始</button></div>
           <div class="progress-track" aria-hidden="true"><div id="wizardProgressBar" class="progress-fill p0"></div></div>
           <div id="wizardQuestion" class="wizard-question">按「開始」就好，我會一步一步問。</div>
           <div id="wizardOptions" class="choice-grid"></div>
           <div class="answer-row">
-            <input id="wizardInput" autocomplete="off" placeholder="直接打答案就好">
+            <input aria-label="這一題的答案" id="wizardInput" autocomplete="off" placeholder="直接打答案就好">
             <button class="primary-button" type="button" data-action="guided-send">送出</button>
           </div>
           <div class="wizard-actions">
@@ -99,29 +109,34 @@
       </section>
 
       <section id="view-settings" class="view" data-view="settings" aria-labelledby="settingsTitle">
-        <div class="page-title-row"><div><p class="section-kicker">設定</p><h2 id="settingsTitle">讓助理更符合您的習慣</h2><p class="muted">只保留每天真的會用到的設定。</p></div></div>
+        <div class="page-title-row"><div><p class="section-kicker">設定</p><h2 id="settingsTitle">偏好設定</h2><p class="muted">設定常用機場、航空與字體。</p></div></div>
         <form id="settingsForm" class="settings-card">
           <label><span>平常從哪個機場出發？</span><select id="defaultOrigin"><option value="TPE">桃園 TPE</option><option value="TSA">松山 TSA</option><option value="KHH">高雄 KHH</option><option value="RMQ">台中 RMQ</option></select></label>
           <fieldset><legend>常用航空</legend><div id="preferredAirlines" class="checkbox-grid"></div></fieldset>
           <fieldset><legend>字體大小</legend><div class="radio-row"><label><input type="radio" name="fontScale" value="normal">一般</label><label><input type="radio" name="fontScale" value="large">大字</label><label><input type="radio" name="fontScale" value="xlarge">特大字</label></div></fieldset>
           <button class="primary-button full" type="submit">儲存設定</button>
-          <button class="secondary-button full" type="button" data-action="open-token">連線密碼</button>
+          <button class="secondary-button full" id="tokenSettingsButton" type="button" data-action="open-token">連線密碼</button>
+          <div id="loginSettings" class="login-settings hidden"><p id="loginIdentity"></p><button class="secondary-button full" type="button" data-action="logout">登出</button></div>
         </form>
-        <details class="admin-link"><summary>管理員工具</summary><p>Browser Lab、官網信任、系統準備度等工程功能放在另一個工作台。</p><a href="/admin">開啟管理員工作台</a></details>
+        <details class="admin-link" id="adminTools"><summary>管理員工具</summary><p>Browser Lab、官網信任、系統準備度等工程功能放在另一個工作台。</p><a href="/admin">開啟管理員工作台</a></details>
       </section>
     </main>
 
     <nav class="bottom-nav" aria-label="主要功能">
-      <button type="button" class="nav-item is-active" data-nav="today"><span>☀️</span><b>今天</b></button>
-      <button type="button" class="nav-item" data-nav="cases"><span>📂</span><b>案件</b></button>
-      <button type="button" class="nav-item nav-new" data-nav="new"><span>＋</span><b>新客人</b></button>
-      <button type="button" class="nav-item" data-nav="assistant"><span>💬</span><b>問助理</b></button>
-      <button type="button" class="nav-item" data-nav="settings"><span>⚙️</span><b>設定</b></button>
+      <div class="sidebar-brand"><span class="brand-mark" data-icon="plane"></span><div><b>旅行社小幫手</b><small>案件與旅行工作台</small></div></div>
+      <div class="nav-caption">工作空間</div>
+      <button type="button" class="nav-item is-active" data-nav="today" aria-current="page"><span data-icon="overview"></span><b>今天</b></button>
+      <button type="button" class="nav-item" data-nav="cases"><span data-icon="folder"></span><b>案件</b></button>
+      <button type="button" class="nav-item nav-new" data-nav="new"><span data-icon="plus"></span><b>新客人</b></button>
+      <button type="button" class="nav-item" data-nav="assistant"><span data-icon="reply"></span><b>問助理</b></button>
+      <button type="button" class="nav-item" data-nav="settings"><span data-icon="settings"></span><b>設定</b></button>
+      <div class="sidebar-note"><span class="note-dot"></span>一個案件，接續每一步。</div>
     </nav>
   </div>
 
   <dialog id="sheet" class="sheet-dialog"><div class="sheet"><div class="sheet-handle"></div><div class="sheet-head"><h2 id="sheetTitle">處理工作</h2><button type="button" class="close-button" data-action="close-sheet" aria-label="關閉">×</button></div><div id="sheetBody"></div></div></dialog>
   <dialog id="onboardingDialog" class="center-dialog"><form id="onboardingForm" method="dialog" class="dialog-card"><p class="section-kicker">第一次使用</p><h2>先幫您記住兩件事</h2><p class="muted">之後查價就不用每次重填。</p><label><span>平常從哪個機場出發？</span><select id="onboardingOrigin"><option value="TPE">桃園 TPE</option><option value="TSA">松山 TSA</option><option value="KHH">高雄 KHH</option><option value="RMQ">台中 RMQ</option></select></label><fieldset><legend>字體大小</legend><div class="radio-row"><label><input type="radio" name="onboardingFont" value="large" checked>大字</label><label><input type="radio" name="onboardingFont" value="xlarge">特大字</label><label><input type="radio" name="onboardingFont" value="normal">一般</label></div></fieldset><button class="primary-button full" type="submit">開始使用</button></form></dialog>
+  <dialog id="loginDialog" class="center-dialog" aria-labelledby="loginTitle" aria-describedby="loginMessage"><div class="dialog-card"><h2 id="loginTitle">請重新登入</h2><p id="loginMessage">登入已過期或暫時無法確認，案件會保留。重新登入後可繼續處理。</p><button class="primary-button full" type="button" data-action="login">重新登入</button></div></dialog>
   <dialog id="tokenDialog" class="center-dialog"><form id="tokenForm" method="dialog" class="dialog-card"><h2>連線密碼</h2><p class="muted">只有系統啟用管理密碼時才需要。密碼只存在這個瀏覽器分頁，不會寫入案件。</p><label><span>管理密碼</span><input id="tokenInput" type="password" autocomplete="off"></label><div class="button-row"><button class="secondary-button" type="button" data-action="clear-token">清除</button><button class="primary-button" type="submit">套用</button></div></form></dialog>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="/static/app.js" defer></script>

@@ -1,5 +1,6 @@
 <!doctype html>
 <html lang="zh-Hant">
+<!-- Mom Travel Desk v0.8.1 -->
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
@@ -10,7 +11,7 @@
   <div class="shell">
     <header>
       <div>
-        <div class="eyebrow">旅行社 AI 工作台 · 管理員工作台 · v0.8.1</div>
+        <div class="eyebrow">旅行社工作台 · 管理員</div>
         <h1>Mom Travel Desk</h1>
         <p>從客人案件開始。AI 幫忙查官方網站、驗證、比較與整理，媽媽負責最後判斷和付款。</p>
       </div>
@@ -64,6 +65,7 @@
       <div id="modalBody"></div>
     </dialog>
   </div>
+  <dialog id="adminLoginDialog" class="login-dialog" aria-labelledby="adminLoginTitle" aria-describedby="adminLoginMessage"><h2 id="adminLoginTitle">請重新登入</h2><p id="adminLoginMessage">登入已過期或暫時無法確認，重新登入後可繼續處理。</p><button type="button" id="adminRelogin">重新登入</button></dialog>
   <script src="/admin-static/app.js"></script>
 </body>
 </html>
