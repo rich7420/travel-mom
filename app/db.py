@@ -229,6 +229,39 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_skill_feedback_skill ON skill_feedback(skill_key, created_at);
             CREATE INDEX IF NOT EXISTS idx_skill_feedback_case ON skill_feedback(case_id, created_at);
 
+            CREATE TABLE IF NOT EXISTS agency_quotes (
+              id TEXT PRIMARY KEY, case_id TEXT NOT NULL REFERENCES trip_cases(id),
+              version INTEGER NOT NULL, status TEXT NOT NULL, payload_json TEXT NOT NULL, created_at TEXT NOT NULL,
+              UNIQUE(case_id, version)
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_agency_accepted ON agency_quotes(case_id) WHERE status='accepted';
+            CREATE TABLE IF NOT EXISTS agency_work_items (
+              id TEXT PRIMARY KEY, case_id TEXT NOT NULL REFERENCES trip_cases(id),
+              status TEXT NOT NULL, due_at TEXT NOT NULL, payload_json TEXT NOT NULL, created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_agency_due ON agency_work_items(status,due_at);
+            CREATE TABLE IF NOT EXISTS agency_bookings (
+              id TEXT PRIMARY KEY, case_id TEXT NOT NULL REFERENCES trip_cases(id),
+              quote_id TEXT NOT NULL REFERENCES agency_quotes(id), kind TEXT NOT NULL, status TEXT NOT NULL,
+              supplier_key TEXT NOT NULL, confirmation_key TEXT NOT NULL, payload_json TEXT NOT NULL, created_at TEXT NOT NULL
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_agency_booking_reference ON agency_bookings(case_id,kind,supplier_key,confirmation_key) WHERE status='confirmed';
+            CREATE TABLE IF NOT EXISTS agency_documents (
+              id TEXT PRIMARY KEY, case_id TEXT NOT NULL REFERENCES trip_cases(id), payload_json TEXT NOT NULL, created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS agency_ledger (
+              id TEXT PRIMARY KEY, case_id TEXT NOT NULL REFERENCES trip_cases(id), payload_json TEXT NOT NULL, created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS agency_pretrip (
+              id TEXT PRIMARY KEY, case_id TEXT NOT NULL REFERENCES trip_cases(id), version INTEGER NOT NULL,
+              payload_json TEXT NOT NULL, created_at TEXT NOT NULL, UNIQUE(case_id,version)
+            );
+            CREATE TABLE IF NOT EXISTS agency_commands (
+              case_id TEXT NOT NULL REFERENCES trip_cases(id), request_id TEXT NOT NULL,
+              action TEXT NOT NULL, fingerprint TEXT NOT NULL, response_json TEXT NOT NULL, actor TEXT NOT NULL,
+              created_at TEXT NOT NULL, PRIMARY KEY(case_id,request_id)
+            );
+
             CREATE TABLE IF NOT EXISTS case_options (
               id TEXT PRIMARY KEY,
               case_id TEXT NOT NULL REFERENCES trip_cases(id),
@@ -271,6 +304,10 @@ def init_db() -> None:
         db.execute(
             "INSERT OR IGNORE INTO schema_migrations(version,name,applied_at) VALUES(?,?,datetime('now'))",
             (802, "Web case workflow and manual supplier options"),
+        )
+        db.execute(
+            "INSERT OR IGNORE INTO schema_migrations(version,name,applied_at) VALUES(?,?,datetime('now'))",
+            (803, "Manual agency operations: quotes, deadlines, confirmations, ledger and pretrip"),
         )
         db.commit()
 

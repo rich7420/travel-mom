@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 
 from fastapi import BackgroundTasks, Body, FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 
@@ -73,6 +73,11 @@ from app.services.scoring import rank_flights, rank_hotels
 from app.security import operator_authorized, security_headers_for_path, validate_runtime_settings, is_production, access_exempt, access_requires_admin, verify_access_origin
 from app.cloudflare_access import AccessVerifier
 
+
+from app.operations_models import QuoteCreate, QuoteDecision, WorkItemCreate, WorkItemPatch, BookingCreate, BookingRebind, VoidRecord, LedgerCreate, DocumentCreate, DocumentPatch, PackCreate, PackDelivery
+from app.operations_repository import OperationConflict, OperationBusy
+from app.services import case_operations as agency
+from app.services.operation_documents import customer_document
 
 logger = logging.getLogger("mom_travel_desk")
 
@@ -252,6 +257,8 @@ def patch_case(case_id: str, patch: TripCasePatch):
         raise HTTPException(404, "case not found")
     except ValidationError as exc:
         raise HTTPException(422, exc.errors(include_context=False))
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
 
 
 @app.post("/api/guided/{session_id}/start")
@@ -697,6 +704,110 @@ async def _execute_hotel_run_background(run_id: str) -> None:
     except Exception:
         logger.exception("background hotel run failed", extra={"run_id": run_id})
         hotel_search_run_repo.set_status(run_id, "failed")
+
+
+
+def agency_call(fn):
+    try:
+        return fn()
+    except KeyError:
+        raise HTTPException(404, "找不到此案件的紀錄") from None
+    except OperationBusy as exc:
+        raise HTTPException(503, str(exc)) from None
+    except OperationConflict as exc:
+        raise HTTPException(409, str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+
+
+def agency_actor(request: Request) -> str:
+    identity = getattr(request.state, "identity", None)
+    return identity.email if identity else "operator"
+
+
+@app.get("/api/mom/work-items")
+def agency_work_items():
+    return {"items": agency.list_work_items(), "timezone": "Asia/Taipei"}
+
+
+@app.get("/api/mom/cases/{case_id}/operations")
+def agency_operations(case_id: str):
+    return agency_call(lambda: agency.case_operations(case_id))
+
+
+@app.post("/api/mom/cases/{case_id}/quotes")
+def agency_create_quote(case_id: str, data: QuoteCreate, request: Request):
+    return agency_call(lambda: agency.create_quote(case_id, data, agency_actor(request)))
+
+
+@app.post("/api/mom/cases/{case_id}/quotes/{quote_id}/{action}")
+def agency_decide_quote(case_id: str, quote_id: str, action: str, data: QuoteDecision, request: Request):
+    return agency_call(lambda: agency.decide_quote(case_id, quote_id, action, data, agency_actor(request)))
+
+
+@app.post("/api/mom/cases/{case_id}/work-items")
+def agency_create_work(case_id: str, data: WorkItemCreate, request: Request):
+    return agency_call(lambda: agency.create_work_item(case_id, data, agency_actor(request)))
+
+
+@app.patch("/api/mom/cases/{case_id}/work-items/{item_id}")
+def agency_update_work(case_id: str, item_id: str, data: WorkItemPatch, request: Request):
+    return agency_call(lambda: agency.patch_work_item(case_id, item_id, data, agency_actor(request)))
+
+
+@app.post("/api/mom/cases/{case_id}/bookings")
+def agency_create_booking(case_id: str, data: BookingCreate, request: Request):
+    return agency_call(lambda: agency.create_booking(case_id, data, agency_actor(request)))
+
+
+@app.post("/api/mom/cases/{case_id}/bookings/{booking_id}/rebind")
+def agency_rebind_booking(case_id: str, booking_id: str, data: BookingRebind, request: Request):
+    return agency_call(lambda: agency.rebind_booking(case_id, booking_id, data, agency_actor(request)))
+
+
+@app.post("/api/mom/cases/{case_id}/bookings/{booking_id}/void")
+def agency_void_booking(case_id: str, booking_id: str, data: VoidRecord, request: Request):
+    return agency_call(lambda: agency.void_record(case_id, "bookings", booking_id, data, agency_actor(request)))
+
+
+@app.post("/api/mom/cases/{case_id}/ledger")
+def agency_create_ledger(case_id: str, data: LedgerCreate, request: Request):
+    return agency_call(lambda: agency.create_ledger_entry(case_id, data, agency_actor(request)))
+
+
+@app.post("/api/mom/cases/{case_id}/ledger/{entry_id}/void")
+def agency_void_ledger(case_id: str, entry_id: str, data: VoidRecord, request: Request):
+    return agency_call(lambda: agency.void_record(case_id, "ledger", entry_id, data, agency_actor(request)))
+
+
+@app.post("/api/mom/cases/{case_id}/documents")
+def agency_create_document(case_id: str, data: DocumentCreate, request: Request):
+    return agency_call(lambda: agency.create_document(case_id, data, agency_actor(request)))
+
+
+@app.patch("/api/mom/cases/{case_id}/documents/{document_id}")
+def agency_update_document(case_id: str, document_id: str, data: DocumentPatch, request: Request):
+    return agency_call(lambda: agency.patch_document(case_id, document_id, data, agency_actor(request)))
+
+
+@app.post("/api/mom/cases/{case_id}/pretrip")
+def agency_create_pack(case_id: str, data: PackCreate, request: Request):
+    return agency_call(lambda: agency.create_pack(case_id, data, agency_actor(request)))
+
+
+@app.post("/api/mom/cases/{case_id}/pretrip/{pack_id}/deliver")
+def agency_deliver_pack(case_id: str, pack_id: str, data: PackDelivery, request: Request):
+    return agency_call(lambda: agency.deliver_pack(case_id, pack_id, data, agency_actor(request)))
+
+
+@app.get("/api/mom/cases/{case_id}/quotes/{quote_id}/document")
+def agency_quote_document(case_id: str, quote_id: str):
+    return HTMLResponse(agency_call(lambda: customer_document(case_id, quote_id, "quote")))
+
+
+@app.get("/api/mom/cases/{case_id}/pretrip/{pack_id}/document")
+def agency_pack_document(case_id: str, pack_id: str):
+    return HTMLResponse(agency_call(lambda: customer_document(case_id, pack_id, "pretrip")))
 
 
 @app.get("/api/mom/preferences")

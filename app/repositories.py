@@ -99,6 +99,8 @@ class CaseRepo:
             current = _case_from_row(row)
             if not patch:
                 return current
+            if patch.get("status") in {"booking", "confirmed"} and patch["status"] != current.status.value:
+                raise ValueError("訂購進度由客人採用報價與已核對的訂購確認更新，請使用案件的訂購流程")
             merged = {**current.model_dump(mode="json"), **patch, "updated_at": now_iso()}
             TripCaseCreate.model_validate(merged)
             updated = TripCase.model_validate(merged)

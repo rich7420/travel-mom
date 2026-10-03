@@ -241,3 +241,51 @@ def test_access_origin_normalizes_hostname_and_default_port(access_client,signin
     security.validate_runtime_settings()
     response = access_client.post('/api/cases',json={'customer_name':'來源驗證'},headers=headers(signing_keys[0]))
     assert response.status_code == 200
+
+
+def test_access_operator_agency_lifecycle_and_export_boundaries(access_client, signing_keys):
+    from datetime import timedelta
+    from uuid import uuid4
+    from tests.test_web_workflow import manual_payload
+    signed = headers(signing_keys[0])
+    c = access_client.post('/api/cases', json={'customer_name':'營運登入測試','destination':'東京',
+        'depart_date':'2026-11-18','return_date':'2026-11-22','adults':2,'children':1,'infants':1,'children_ages':[7]}, headers=signed).json()
+    base = f"/api/mom/cases/{c['id']}"
+    def post(suffix, data):
+        response = access_client.post(base+suffix, json={'request_id':str(uuid4()), **data}, headers=signed)
+        assert response.status_code == 200, response.text
+        return response.json()
+    for kind in ['flight','hotel']:
+        option = access_client.post(base+'/options', json=manual_payload(kind=kind), headers=signed).json()
+        assert access_client.post(base+'/selection',json={'option_id':option['id']},headers=signed).status_code == 200
+    quote = post('/quotes', {'title':'對客報價','valid_until':(datetime.now(timezone.utc)+timedelta(minutes=30)).isoformat(), 'includes':'公開內容','excludes':'退改條件'})
+    proof={'reference':'PRIVATE-EVIDENCE','occurred_at':datetime.now(timezone.utc).isoformat(),'checked':True}
+    for action in ['sent','accept']:
+        post(f"/quotes/{quote['id']}/{action}", proof)
+    for kind, doc_kind in [('flight','e_ticket'),('hotel','hotel_voucher')]:
+        booking=post('/bookings', {**proof,'kind':kind,'title':'公開訂购','supplier':'PRIVATE-WINDOW','confirmation_number':kind+'-123','customer_details':'公開確認內容'})
+        post(f"/bookings/{booking['id']}/rebind",{**proof,'reason':'供應商重新核對','customer_details':'公開確認內容'})
+        doc=post('/documents',{'kind':doc_kind,'title':'公開憑證','required':True,'booking_id':booking['id']})
+        response=access_client.patch(base+f"/documents/{doc['id']}",json={'request_id':str(uuid4()),**proof,'expected_revision':1,'status':'ready','customer_text':'已核對原檔'},headers=signed)
+        assert response.status_code == 200, response.text
+    post('/ledger',{**proof,'kind':'customer_receipt','amount':'100.10','currency':'TWD'})
+    task=post('/work-items',{'kind':'pretrip','title':'交付','owner':'媽媽','due_at':datetime.now(timezone.utc).isoformat(),'source':'約定'})
+    response=access_client.patch(base+f"/work-items/{task['id']}",json={'request_id':str(uuid4()),'expected_revision':1,'status':'done','reason':'已完成'},headers=signed)
+    assert response.status_code == 200
+    pack=post('/pretrip', {'title':'公開行前摘要'})
+    post(f"/pretrip/{pack['id']}/deliver",{**proof,'channel':'LINE 人工'})
+    for suffix in [f"/quotes/{quote['id']}/document",f"/pretrip/{pack['id']}/document"]:
+        response=access_client.get(base+suffix,headers=signed)
+        assert response.status_code == 200 and 'text/html' in response.headers['content-type']
+        assert 'PRIVATE-EVIDENCE' not in response.text and 'PRIVATE-WINDOW' not in response.text
+        assert 'no-store' in response.headers['cache-control']
+        assert "'unsafe-inline'" not in response.headers['content-security-policy']
+        assert access_client.get(base+suffix).status_code == 401
+    assert access_client.get(base+'/operations',headers=signed).json()['accepted_quote_id']==quote['id']
+    assert access_client.get('/api/mom/work-items',headers=signed).json()['timezone']=='Asia/Taipei'
+    for suffix in ['/quotes','/work-items','/bookings','/ledger','/documents','/pretrip']:
+        assert access_client.post(base+suffix,json={},headers={**signed,'Origin':'https://evil.example.com'}).status_code == 403
+    for suffix in ['/operations/extra','/quotes/a/document/extra','/quotes/a/delete','/pretrip/a/void','/bookings/a/document','/documents/a/void']:
+        assert access_client.post(base+suffix,json={},headers=signed).status_code == 403
+    assert access_client.delete(base+'/quotes/'+quote['id'],headers=signed).status_code == 403
+    assert access_client.patch(base+'/bookings/'+booking['id'],json={},headers=signed).status_code == 403
