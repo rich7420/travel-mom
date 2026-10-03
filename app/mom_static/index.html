@@ -54,6 +54,7 @@
           </div>
         </section>
 
+        <section class="section-block" aria-labelledby="deadlineHomeTitle"><div class="section-heading split"><div><h2 id="deadlineHomeTitle">工作期限</h2><p>台北時間；全部逾期與今日待辦。</p></div><button class="text-button" type="button" data-nav="tasks">全部待辦 →</button></div><div id="homeDeadlines" class="stack"><p class="muted">載入工作期限…</p></div></section>
         <div class="workspace-grid">
         <section class="section-block priority-section" aria-labelledby="priorityTitle">
           <div class="section-heading split">
@@ -109,6 +110,8 @@
         <div id="intentResults" class="stack"></div>
       </section>
 
+      <section id="view-tasks" class="view" data-view="tasks" aria-labelledby="tasksTitle"><div class="page-title-row"><div><p class="section-kicker">工作期限</p><h2 id="tasksTitle">待辦與期限</h2><p class="muted">所有案件的工作；頁面提示不會另發通知。</p></div><button class="secondary-button compact" type="button" data-action="ops-refresh-tasks">重新整理</button></div><label class="search-field"><span>查看工作</span><select id="taskStatusFilter"><option value="open">未完成</option><option value="done">已完成</option><option value="cancelled">已取消</option></select></label><div id="allDeadlines" class="stack"></div></section>
+
       <section id="view-settings" class="view" data-view="settings" aria-labelledby="settingsTitle">
         <div class="page-title-row"><div><p class="section-kicker">設定</p><h2 id="settingsTitle">偏好設定</h2><p class="muted">設定常用機場、航空與字體。</p></div></div>
         <form id="settingsForm" class="settings-card">
@@ -128,6 +131,7 @@
       <div class="sidebar-brand"><span class="brand-mark" data-icon="plane"></span><div><b>旅行社小幫手</b><small>案件與旅行工作台</small></div></div>
       <div class="nav-caption">工作空間</div>
       <button type="button" class="nav-item is-active" data-nav="today" aria-current="page"><span data-icon="overview"></span><b>今天</b></button>
+      <button type="button" class="nav-item" data-nav="tasks"><span data-icon="tasks"></span><b>待辦</b></button>
       <button type="button" class="nav-item" data-nav="cases"><span data-icon="folder"></span><b>案件</b></button>
       <button type="button" class="nav-item nav-new" data-nav="new"><span data-icon="plus"></span><b>新客人</b></button>
       <button type="button" class="nav-item" data-nav="assistant"><span data-icon="reply"></span><b>問助理</b></button>
@@ -136,11 +140,12 @@
     </nav>
   </div>
 
-  <dialog id="sheet" class="sheet-dialog"><div class="sheet"><div class="sheet-handle"></div><div class="sheet-head"><h2 id="sheetTitle">處理工作</h2><a id="sheetHelp" class="guide-link" href="/static/guide.html#start" target="_blank" rel="noopener">操作說明 <small>另開分頁 ↗</small></a><button type="button" class="close-button" data-action="close-sheet" aria-label="關閉">×</button></div><div id="sheetBody"></div></div></dialog>
+  <dialog id="sheet" class="sheet-dialog" aria-labelledby="sheetTitle"><div class="sheet"><div class="sheet-handle"></div><div class="sheet-head"><button type="button" id="sheetBack" class="text-button hidden">返回案件</button><h2 id="sheetTitle">處理工作</h2><a id="sheetHelp" class="guide-link" href="/static/guide.html#start" target="_blank" rel="noopener">操作說明 <small>另開分頁 ↗</small></a><button type="button" class="close-button" data-action="close-sheet" aria-label="關閉">×</button></div><div id="sheetBody"></div></div></dialog>
   <dialog id="onboardingDialog" class="center-dialog"><form id="onboardingForm" method="dialog" class="dialog-card"><p class="section-kicker">第一次使用</p><h2>先幫您記住兩件事</h2><p class="muted">之後查價就不用每次重填。</p><label><span>平常從哪個機場出發？</span><select id="onboardingOrigin"><option value="TPE">桃園 TPE</option><option value="TSA">松山 TSA</option><option value="KHH">高雄 KHH</option><option value="RMQ">台中 RMQ</option></select></label><fieldset><legend>字體大小</legend><div class="radio-row"><label><input type="radio" name="onboardingFont" value="large" checked>大字</label><label><input type="radio" name="onboardingFont" value="xlarge">特大字</label><label><input type="radio" name="onboardingFont" value="normal">一般</label></div></fieldset><button class="primary-button full" type="submit">開始使用</button></form></dialog>
-  <dialog id="loginDialog" class="center-dialog" aria-labelledby="loginTitle" aria-describedby="loginMessage"><div class="dialog-card"><h2 id="loginTitle">請重新登入</h2><p id="loginMessage">登入已過期或暫時無法確認，案件會保留。重新登入後可繼續處理。</p><button class="primary-button full" type="button" data-action="login">重新登入</button></div></dialog>
+  <dialog id="loginDialog" class="center-dialog" aria-labelledby="loginTitle" aria-describedby="loginMessage"><div class="dialog-card"><h2 id="loginTitle">請重新登入</h2><p id="loginMessage">請先在另一個分頁登入，再回來繼續。原案件與未送出的文字保留在本分頁。</p><a class="secondary-button full login-link" href="/" target="_blank" rel="noopener">開啟登入頁（另開分頁）</a><button class="primary-button full" type="button" data-action="login">我已登入，繼續處理</button></div></dialog>
   <dialog id="tokenDialog" class="center-dialog"><form id="tokenForm" method="dialog" class="dialog-card"><h2>連線密碼</h2><p class="muted">只有系統啟用管理密碼時才需要。密碼只存在這個瀏覽器分頁，不會寫入案件。</p><label><span>管理密碼</span><input id="tokenInput" type="password" autocomplete="off"></label><div class="button-row"><button class="secondary-button" type="button" data-action="clear-token">清除</button><button class="primary-button" type="submit">套用</button></div></form></dialog>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="/static/app.js" defer></script>
+  <script src="/static/operations.js" defer></script>
 </body>
 </html>

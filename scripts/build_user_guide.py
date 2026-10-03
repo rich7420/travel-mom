@@ -24,6 +24,11 @@ CHAPTER_IDS = {
     "比較與選方案": "compare",
     "整理與修改客戶回覆": "reply",
     "查價紀錄與今天的工作": "today",
+    "正式報價與客人採用版本": "quotes",
+    "期限待辦與追蹤": "deadlines",
+    "訂購確認與錯誤修正": "confirmations",
+    "收付款與分幣別對帳": "payments",
+    "文件缺件與行前交付": "pretrip",
     "常見問題與卡住時怎麼做": "troubleshooting",
     "還需要使用旅行社原本流程的工作": "limits",
 }

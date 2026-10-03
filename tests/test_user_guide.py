@@ -41,10 +41,11 @@ def test_generated_guide_matches_manual_and_has_resolved_safe_navigation():
     assert set(parsed.fragments) <= set(parsed.ids)
     assert set(guide.CHAPTER_IDS.values()) <= set(parsed.ids)
     assert not re.search(r"v\d+\.\d+", "".join(parsed.visible_text))
+    assert {'quotes', 'deadlines', 'confirmations', 'payments', 'pretrip'} <= set(parsed.ids)
     for fragment in re.findall(r'/static/guide\.html#([a-z-]+)', (guide.ROOT / 'app/mom_static/index.html').read_text()):
         assert fragment in parsed.ids
-    app_js = (guide.ROOT / 'app/mom_static/app.js').read_text()
-    for fragment in re.findall(r",(?:true|!keepScroll),'([a-z-]+)'\);", app_js):
+    app_js = '\n'.join((guide.ROOT / 'app/mom_static' / file).read_text() for file in ['app.js', 'operations.js'])
+    for fragment in re.findall(r",\s*(?:true|!keepScroll),\s*'([a-z-]+)'(?:,|\))", app_js):
         assert fragment in parsed.ids
 
 
