@@ -320,3 +320,33 @@ def test_search_abandon_is_admin_only_and_origin_protected(access_client,signing
     assert access_client.post(path,headers=headers(private),json={}).status_code==403
     assert access_client.post(path,headers={**headers(private,email='admin@example.com'),'Origin':'https://wrong.example'},json={}).status_code==403
     assert access_client.post(path,headers=headers(private,email='admin@example.com'),json={}).status_code==422
+
+
+def test_service_order_exact_routes_origin_identity_and_receipts(access_client, signing_keys):
+    from datetime import timedelta
+    from uuid import uuid4
+    mom=headers(signing_keys[0])
+    case=access_client.post('/api/cases',headers=mom,json={'customer_name':'Access服務工作單合成'}).json()
+    base=f"/api/mom/cases/{case['id']}"
+    payload={'request_id':str(uuid4()),'reference':'已核對','occurred_at':datetime.now(timezone.utc).isoformat(),'checked':True,
+             'kind':'incident','title':'立即協助','request_details':'已接到需求','owner':'媽媽','due_at':(datetime.now(timezone.utc)+timedelta(hours=1)).isoformat()}
+    assert access_client.post(base+'/service-orders',json=payload).status_code==401
+    assert access_client.post(base+'/service-orders',json=payload,headers={**mom,'Origin':'https://evil.example'}).status_code==403
+    order=access_client.post(base+'/service-orders',json=payload,headers=mom)
+    assert order.status_code==200,order.text
+    order=order.json();assert order['history'][0]['actor']=='mom@example.com'
+    for suffix in ('service-orders/','service-orders/extra/delete','service-orders/x/progress/','service-order-receipts/x/extra'):
+        assert access_client.post(base+'/'+suffix,json=payload,headers=mom).status_code==403
+    for method,suffix in [('DELETE','service-orders/'+order['id']),('GET','service-orders/'+order['id']+'/progress'),('PATCH','service-orders/'+order['id']+'/settlement')]:
+        assert access_client.request(method,base+'/'+suffix,headers=mom).status_code==403
+    for action in ('assessment','decision','progress','settlement','resolve','reopen'):
+        assert access_client.post(base+f"/service-orders/{order['id']}/{action}",json={},headers={**mom,'Origin':'null'}).status_code==403
+        assert access_client.post(base+f"/service-orders/{order['id']}/{action}",json={},headers=mom).status_code==422
+    assert access_client.get(base+'/service-order-receipts/'+payload['request_id'],headers=mom).json()=={'committed':True,'order_id':order['id']}
+    assert access_client.get(base+'/service-order-receipts/'+payload['request_id'],headers=headers(signing_keys[0],email='admin@example.com')).status_code==409
+    progress=access_client.post(base+f"/service-orders/{order['id']}/progress",headers=mom,json={**{k:v for k,v in payload.items() if k in {'reference','occurred_at','checked'}},'request_id':str(uuid4()),'expected_revision':order['revision'],'stage':'safety_assistance','message':'已完成立即協助'}).json()
+    resolved=access_client.post(base+f"/service-orders/{order['id']}/resolve",headers=mom,json={**{k:v for k,v in payload.items() if k in {'reference','occurred_at','checked'}},'request_id':str(uuid4()),'expected_revision':progress['revision'],'summary':'已通知客人','customer_notified_checked':True})
+    assert resolved.status_code==200,resolved.text
+    state=access_client.get(base+'/operations',headers=mom).json()['lifecycle']['expected_state']
+    closed=access_client.post(base+'/lifecycle/close',headers=mom,json={**{k:v for k,v in payload.items() if k in {'reference','occurred_at','checked'}},'request_id':str(uuid4()),'expected_state':state,'reason':'服務已完成','outcome':'completed','supplier_settlement_checked':True})
+    assert closed.status_code==200,closed.text

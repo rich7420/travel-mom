@@ -426,7 +426,7 @@ function markFormCommitted(form, action, details={}) {
 }
 function savedFormRefresh(form) {
   const item=form.refreshAction;if(!item)return '';
-  return `<button type="button" class="secondary-button" data-action="${escapeHtml(item.action)}" data-case-id="${escapeHtml(item.caseId||'')}" data-kind="${escapeHtml(item.kind||'')}" data-run-id="${escapeHtml(item.runId||'')}" data-module="${escapeHtml(item.module||'')}">重新載入已保存紀錄</button>`;
+  return `<button type="button" class="secondary-button" data-action="${escapeHtml(item.action)}" data-case-id="${escapeHtml(item.caseId||'')}" data-kind="${escapeHtml(item.kind||'')}" data-run-id="${escapeHtml(item.runId||'')}" data-module="${escapeHtml(item.module||'')}" data-id="${escapeHtml(item.id||'')}">重新載入已保存紀錄</button>`;
 }
 async function submitCaseEdit(form) {
   const submissionGeneration=sheetGeneration;
@@ -660,6 +660,7 @@ async function renderSettings(){if(!state.preferences)return;$('#defaultOrigin')
 async function saveSettings(event){event.preventDefault();const preferred=[...$('#preferredAirlines').querySelectorAll('input:checked')].map(x=>x.value);const scale=document.querySelector('input[name="fontScale"]:checked')?.value||'large';try{state.preferences=await api('/api/mom/preferences',{method:'PATCH',body:JSON.stringify({default_origin:$('#defaultOrigin').value,preferred_airlines:preferred,font_scale:scale})});applyFontScale(scale);showToast('設定已儲存。');}catch(err){ if (err instanceof ReauthenticationError) return;showToast(friendlyError(err));}}
 
 async function handleNextAction(el) {
+  if(el.dataset.kind==='service_orders')return extraActions.get('service-detail')?.({dataset:{caseId:el.dataset.caseId,id:el.dataset.recordId}});
   if(['quotes','bookings','tasks','ledger','pretrip','lifecycle'].includes(el.dataset.kind))return extraActions.get('ops-open')?.({dataset:{caseId:el.dataset.caseId,module:el.dataset.kind,recordId:el.dataset.recordId}});
   const kind=el.dataset.kind, caseId=el.dataset.caseId, runId=el.dataset.runId;
   if(kind==='flight_search') return openFlightSearch(caseId);
@@ -729,7 +730,8 @@ document.addEventListener('submit',async event=>{
   try {const pending=handler(form);form.inert=true;await pending;} catch(err){ form.inert=false;if (err instanceof ReauthenticationError) return;const message=(form.dataset.committed==='true'?'已保存，但畫面更新失敗。請重新載入，勿重複儲存。 ':'')+friendlyError(err);showToast(message);if(form.isConnected)form.insertAdjacentHTML('beforeend',`<div class="notice-card warn form-error" role="alert" tabindex="-1">${escapeHtml(message)}${form.dataset.committed==='true'?savedFormRefresh(form):''}</div>`);form.querySelector('.form-error')?.focus();}
   finally {
     form.inert=false;form.dataset.busy='false';
-    if(button)button.disabled=form.dataset.committed==='true';
+    if(button)button.disabled=form.dataset.committed==='true'||form.dataset.uncertain==='true';
+    if(form.dataset.uncertain==='true')form.querySelectorAll('input,select,textarea,[data-action=service-add-currency],[data-action=service-remove-currency]').forEach(el=>{el.disabled=true;});
     if(form.dataset.committed==='true'&&form.isConnected) {
       // The write has succeeded; a failed follow-up must not invite unsavable edits.
       form.querySelectorAll('input,select,textarea').forEach(el=>{el.disabled=true;});
@@ -757,7 +759,7 @@ $('#wizardInput').addEventListener('keydown',event=>{if(event.key==='Enter'){eve
 function caseOperationTiles(c, ops) {
   if(!ops)return `<div class="notice-card warn" role="alert">業務紀錄暫時無法讀取，請重新載入核對。<button class="secondary-button" type="button" data-action="open-case" data-case-id="${escapeHtml(c.id)}">重新載入業務紀錄</button></div>`;
   const counts={quotes:ops.quotes.length,tasks:ops.work_items.filter(i=>i.status==='open').length,bookings:ops.bookings.filter(b=>b.status==='confirmed').length,ledger:ops.ledger.filter(e=>e.status!=='voided').length,pretrip:ops.documents.filter(d=>d.required&&(d.status!=='ready'||d.needs_recheck||d.booking_id&&!ops.bookings.some(b=>b.id===d.booking_id&&b.status==='confirmed'&&b.binding_current))).length};
-  const labels={quotes:'報價版本',tasks:'期限待辦',bookings:'訂購確認',ledger:'收付款',pretrip:'行前交付'};
+  const labels={quotes:'報價版本',tasks:'期限與改退',bookings:'訂購確認',ledger:'收付款',pretrip:'行前交付'};
   return `<h3>案件工作</h3><div class="operation-tiles">${Object.entries(labels).map(([module,label])=>`<button class="secondary-button" type="button" data-action="ops-open" data-module="${module}" data-case-id="${escapeHtml(c.id)}"><b>${label}</b><small>${module==='pretrip'?`${counts[module]} 項待補文件`:`${counts[module]} 筆紀錄`}</small></button>`).join('')}</div><button class="secondary-button full lifecycle-entry" type="button" data-action="ops-open" data-module="lifecycle" data-case-id="${escapeHtml(c.id)}">結案與重新開案</button>`;
 }
 $('#sheetBack').addEventListener('click',()=>runAction(()=>sheetBack?.()));

@@ -41,7 +41,7 @@ def source_manifest():
     files = [path for path in (root / 'app').rglob('*')
              if path.is_file() and '__pycache__' not in path.parts]
     files += [root / 'scripts' / name for name in
-              ('browser_test_support.py', 'verify_travel_files.py', 'verify_access_browser.py')
+              ('browser_test_support.py', 'verify_travel_files.py', 'verify_access_browser.py', 'verify_service_orders.py')
               if (root / 'scripts' / name).exists()]
     return {str(path.relative_to(root)): hashlib.sha256(path.read_bytes()).hexdigest()
             for path in sorted(files)}

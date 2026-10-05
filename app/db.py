@@ -278,6 +278,12 @@ def init_db() -> None:
                 id TEXT PRIMARY KEY, case_id TEXT NOT NULL REFERENCES trip_cases(id),
                 payload_json TEXT NOT NULL, created_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS agency_service_orders (
+                id TEXT PRIMARY KEY, case_id TEXT NOT NULL REFERENCES trip_cases(id),
+                status TEXT NOT NULL, due_at TEXT NOT NULL,
+                payload_json TEXT NOT NULL, created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_agency_service_orders ON agency_service_orders(status,due_at,case_id);
             CREATE TABLE IF NOT EXISTS agency_commands (
               case_id TEXT NOT NULL REFERENCES trip_cases(id), request_id TEXT NOT NULL,
               action TEXT NOT NULL, fingerprint TEXT NOT NULL, response_json TEXT NOT NULL, actor TEXT NOT NULL,
@@ -337,6 +343,8 @@ def init_db() -> None:
         )
         db.execute("INSERT OR IGNORE INTO schema_migrations(version,name,applied_at) VALUES(?,?,datetime('now'))",
                    (805, "Encrypted traveller roster and private original attachments"))
+        db.execute("INSERT OR IGNORE INTO schema_migrations(version,name,applied_at) VALUES(?,?,datetime('now'))",
+                   (806, "Evidence-bearing service orders and linked settlements"))
         db.commit()
 
 

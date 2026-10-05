@@ -94,6 +94,19 @@ def main():
             upload=api.post(private_path+f"/documents/{doc['id']}/attachments",params={'request_id':str(uuid4()),'expected_revision':doc['revision']},content=b'%PDF-1.4 synthetic container original',headers={'content-type':'application/pdf','x-file-name':base64.b64encode(b'synthetic.pdf').decode()})
             check('container encrypted original write',upload.status_code==200)
             attachment=upload.json()
+        with httpx.Client(base_url=base,headers={'Authorization':'Bearer '+token}) as api:
+            service_path=private_path+'/service-orders'
+            from datetime import timedelta
+            proof={'request_id':str(uuid4()),'reference':'synthetic service proof','occurred_at':datetime.now(timezone.utc).isoformat(),'checked':True}
+            response=api.post(service_path,json={**proof,'kind':'incident','title':'Synthetic service order','request_details':'Immediate help provided','owner':'Mom','due_at':(datetime.now(timezone.utc)+timedelta(hours=1)).isoformat()})
+            check('container persists dedicated incident order',response.status_code==200)
+            order=response.json()
+            response=api.post(service_path+'/'+order['id']+'/progress',json={**proof,'request_id':str(uuid4()),'expected_revision':order['revision'],'stage':'safety_assistance','message':'Synthetic immediate assistance'})
+            check('container records incident assistance',response.status_code==200)
+            order=response.json()
+            response=api.post(service_path+'/'+order['id']+'/resolve',json={**proof,'request_id':str(uuid4()),'expected_revision':order['revision'],'summary':'Customer notified','customer_notified_checked':True})
+            check('container resolves incident with evidence',response.status_code==200)
+            service_order=response.json()
         job=run('bundle-backup',source,('python','-m','scripts.backup_bundle','run'))
         wait_job(job);bundle_info=json.loads(docker('logs',job))
         check('encrypted online backup includes originals',bundle_info['attachments']==1)
@@ -103,6 +116,8 @@ def main():
         wait_job(job);check('encrypted restore uses new database and file volume')
         encrypted_live=run('encrypted-recovered',encrypted_restored,server=True);encrypted_base=endpoint(encrypted_live)
         with httpx.Client(base_url=encrypted_base,headers={'Authorization':'Bearer '+token}) as recovered_api:
+            restored_orders=recovered_api.get(private_path+'/operations').json()['service_orders']
+            check('encrypted restore retains service order and full history',len(restored_orders)==1 and restored_orders[0]['id']==service_order['id'] and restored_orders[0]['status']=='completed' and len(restored_orders[0]['history'])==3)
             reveal=recovered_api.get(private_path+f"/travellers/{t['id']}/reveal")
             original=recovered_api.get(private_path+f"/attachments/{attachment['id']}/download")
             check('restored HTTP reveal decrypts passport',reveal.json().get('passport_number')=='SYNTHETIC123')

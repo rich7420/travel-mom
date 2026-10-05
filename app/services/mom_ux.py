@@ -61,7 +61,7 @@ def build_mom_home()->dict[str,Any]:
             elif days<0 and case.status not in {CaseStatus.CLOSED,CaseStatus.TRAVELLING}:urgency=90
         if case.status in {CaseStatus.NEW,CaseStatus.INTAKE,CaseStatus.QUOTING}:urgency+=15
         if case.id in urgent_cases:urgency+=200
-        cards.append({"id":case.id,"customer_name":case.customer_name,"destination":case.destination or "目的地未定","date_label":f"{case.depart_date.isoformat()} → {case.return_date.isoformat() if case.return_date else '回程未定'}" if case.depart_date else "日期未定","status":("未成交結案" if closed_outcomes.get(case.id) == "withdrawn" else "已結案") if case.status == CaseStatus.CLOSED else _friendly_case_status(case.status.value),"status_code":case.status.value,"days_until_departure":days,"next_action":None,"urgency":urgency,"updated_at":case.updated_at})
+        cards.append({"id":case.id,"customer_name":case.customer_name,"destination":case.destination or "目的地未定","date_label":f"{case.depart_date.isoformat()} → {case.return_date.isoformat() if case.return_date else '回程未定'}" if case.depart_date else "日期未定","status":("未成交結案" if closed_outcomes.get(case.id) == "withdrawn" else "取消旅行結案" if closed_outcomes.get(case.id) == "cancelled" else "已結案") if case.status == CaseStatus.CLOSED else _friendly_case_status(case.status.value),"status_code":case.status.value,"days_until_departure":days,"next_action":None,"urgency":urgency,"updated_at":case.updated_at})
     priority=sorted([row for row in cards if row["status_code"] != "closed"],key=lambda r:(r["urgency"],r["updated_at"]),reverse=True)[:4];recent=cards[:6]
     case_by_id = {case.id: case for case in cases}
     for card in priority + recent:

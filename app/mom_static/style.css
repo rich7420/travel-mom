@@ -264,3 +264,13 @@ legend { font-weight:650; margin-bottom:8px; }
 .file-row { padding: .75rem 0; border-top: 1px solid var(--line, #ded8ce); overflow-wrap: anywhere; }
 
 .private-section .operation-actions button { flex-basis: 160px; }
+
+.service-next { margin-block: 1rem; }
+.service-next > button { width: 100%; background: var(--navy, #172b38); color: #fff; }
+.service-secondary > summary, #serviceOrderForm summary { min-height:44px; padding:12px 0; cursor:pointer; font-weight:650; }
+.service-money { display:grid; gap:14px; min-width:0; border:1px solid var(--line); border-radius:12px; padding:16px; }
+.service-money legend { max-width:100%; overflow-wrap:anywhere; padding-inline:6px; }
+.service-money label, .service-order, #serviceOrderForm .notice-card { min-width:0; overflow-wrap:anywhere; }
+.service-secondary .operation-actions { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); }
+.service-secondary .operation-actions > button { min-width:0; }
+@media(max-width:560px) { .service-secondary .operation-actions { grid-template-columns:repeat(2,minmax(0,1fr)); } }

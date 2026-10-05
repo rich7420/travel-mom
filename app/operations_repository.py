@@ -19,7 +19,7 @@ class OperationBusy(RuntimeError):
     pass
 
 
-TABLES = {"quotes", "work_items", "bookings", "documents", "ledger", "pretrip", "case_events", "travellers", "rosters", "attachments"}
+TABLES = {"quotes", "work_items", "bookings", "documents", "ledger", "pretrip", "case_events", "travellers", "rosters", "attachments", "service_orders"}
 
 
 def encode(value) -> str:
@@ -52,7 +52,7 @@ def save(db, table: str, value: dict) -> dict:
     columns = {"id": value["id"], "case_id": value["case_id"], "payload_json": encode(value), "created_at": value["created_at"]}
     if table == "quotes":
         columns.update(version=value["version"], status=value["status"])
-    elif table == "work_items":
+    elif table in {"work_items", "service_orders"}:
         columns.update(status=value["status"], due_at=value["due_at"])
     elif table == "bookings":
         columns.update(quote_id=value["quote_id"], kind=value["kind"], status=value["status"],

@@ -159,13 +159,13 @@ class CaseLifecycle(Evidence):
 
 
 class CaseClose(CaseLifecycle):
-    outcome: Literal["completed", "withdrawn"]
+    outcome: Literal["completed", "withdrawn", "cancelled"]
     supplier_settlement_checked: Literal[True] | None = None
     withdraw_adoption_checked: Literal[True] | None = None
 
     @model_validator(mode="after")
     def require_settlement_check(self):
-        if self.outcome == "completed" and self.supplier_settlement_checked is not True:
+        if self.outcome in {"completed", "cancelled"} and self.supplier_settlement_checked is not True:
             raise ValueError("完成業務結案前，請確認供應商款項與後續服務均已核對")
         if self.outcome == "completed" and self.withdraw_adoption_checked is not None:
             raise ValueError("完成結案不可撤回報價採用")

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from uuid import UUID
 from contextlib import asynccontextmanager
 import logging
 from pathlib import Path
@@ -76,6 +77,9 @@ from app.request_limits import RequestBodyLimitMiddleware
 
 
 from app.operations_models import QuoteCreate, QuoteDecision, WorkItemCreate, WorkItemPatch, BookingCreate, BookingRebind, VoidRecord, LedgerCreate, DocumentCreate, DocumentPatch, PackCreate, PackDelivery, CaseClose, CaseReopen, SearchAbandon, TravellerData, RosterVerify, AttachmentUpload, AttachmentArchive, WorkAcknowledgement, WorkHandover
+from app.service_order_models import (ServiceOrderCreate, ServiceOrderPatch, ServiceAssessment,
+    ServiceDecision, ServiceProgress, ServiceSettlement, ServiceResolve, ServiceReopen)
+from app.services import service_orders
 from app.operations_repository import OperationConflict, OperationBusy
 from app.services import case_operations as agency
 from app.services.operation_documents import customer_document
@@ -1033,3 +1037,48 @@ def handover_work(case_id: str, data: WorkHandover, request: Request):
 def backup_status():
     from scripts.backup_bundle import status
     return status()
+
+
+@app.post('/api/mom/cases/{case_id}/service-orders')
+def service_order_create(case_id: str, data: ServiceOrderCreate, request: Request):
+    return agency_call(lambda: service_orders.create(case_id, data, agency_actor(request)))
+
+
+@app.patch('/api/mom/cases/{case_id}/service-orders/{order_id}')
+def service_order_patch(case_id: str, order_id: str, data: ServiceOrderPatch, request: Request):
+    return agency_call(lambda: service_orders.patch(case_id, order_id, data, agency_actor(request)))
+
+
+@app.post('/api/mom/cases/{case_id}/service-orders/{order_id}/assessment')
+def service_order_assess(case_id: str, order_id: str, data: ServiceAssessment, request: Request):
+    return agency_call(lambda: service_orders.assess(case_id, order_id, data, agency_actor(request)))
+
+
+@app.post('/api/mom/cases/{case_id}/service-orders/{order_id}/decision')
+def service_order_decide(case_id: str, order_id: str, data: ServiceDecision, request: Request):
+    return agency_call(lambda: service_orders.decide(case_id, order_id, data, agency_actor(request)))
+
+
+@app.post('/api/mom/cases/{case_id}/service-orders/{order_id}/progress')
+def service_order_progress(case_id: str, order_id: str, data: ServiceProgress, request: Request):
+    return agency_call(lambda: service_orders.progress(case_id, order_id, data, agency_actor(request)))
+
+
+@app.post('/api/mom/cases/{case_id}/service-orders/{order_id}/settlement')
+def service_order_settle(case_id: str, order_id: str, data: ServiceSettlement, request: Request):
+    return agency_call(lambda: service_orders.settle(case_id, order_id, data, agency_actor(request)))
+
+
+@app.post('/api/mom/cases/{case_id}/service-orders/{order_id}/resolve')
+def service_order_resolve(case_id: str, order_id: str, data: ServiceResolve, request: Request):
+    return agency_call(lambda: service_orders.resolve(case_id, order_id, data, agency_actor(request)))
+
+
+@app.post('/api/mom/cases/{case_id}/service-orders/{order_id}/reopen')
+def service_order_reopen(case_id: str, order_id: str, data: ServiceReopen, request: Request):
+    return agency_call(lambda: service_orders.reopen(case_id, order_id, data, agency_actor(request)))
+
+
+@app.get('/api/mom/cases/{case_id}/service-order-receipts/{request_id}')
+def service_order_receipt(case_id: str, request_id: UUID, request: Request):
+    return agency_call(lambda: service_orders.receipt(case_id, request_id, agency_actor(request)))

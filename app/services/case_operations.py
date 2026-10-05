@@ -6,6 +6,8 @@ from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 from app.config import settings
+from app.services.service_order_state import (TERMINAL, ledger_totals, cash_state, final_dues,
+                                             trip_pending, ended_trip, financial_current)
 from app.db import connect
 from app.models import now_iso
 from app.operations_repository import OperationConflict, command, encode, fingerprint, new_record, record, rows, save
@@ -13,7 +15,7 @@ from app.repositories import _case_from_row
 from app.services.case_workflow import case_workflow, trip_snapshot
 
 BUSINESS_ZONE = ZoneInfo("Asia/Taipei")
-CASE_TABLES = ("quotes", "work_items", "bookings", "documents", "ledger", "pretrip", "case_events", "travellers", "rosters", "attachments")
+CASE_TABLES = ("quotes", "work_items", "bookings", "documents", "ledger", "pretrip", "case_events", "travellers", "rosters", "attachments", "service_orders")
 
 
 def snapshot(case) -> dict:
@@ -190,9 +192,14 @@ def deadline_state(item: dict) -> dict:
 
 
 def list_work_items() -> list[dict]:
+    from app.services.service_orders import order_deadlines
     with connect() as db:
+        db.execute('BEGIN')
         found = db.execute("SELECT w.payload_json,c.customer_name,c.status FROM agency_work_items w JOIN trip_cases c ON c.id=w.case_id ORDER BY w.due_at,w.id").fetchall()
-    return [deadline_state({**json.loads(r[0]), "customer_name": r[1], "case_closed": r[2] == "closed"}) for r in found]
+        result = [deadline_state({**json.loads(r[0]), "customer_name": r[1], "case_closed": r[2] == "closed"}) for r in found]
+        for row in db.execute("SELECT * FROM trip_cases WHERE id IN (SELECT DISTINCT case_id FROM agency_service_orders)").fetchall():
+            result.extend(order_deadlines(db, _case_from_row(row)))
+    return sorted(result, key=lambda item:(item['due_at'],item['id']))
 
 
 def create_booking(case_id: str, data, actor: str) -> dict:
@@ -223,29 +230,30 @@ def rebind_booking(case_id: str, booking_id: str, data, actor: str) -> dict:
     return command(case_id, data, actor, f"booking.{booking_id}.rebind", execute)
 
 
+def void_entry(db, case, table, record_id, data, actor, *, touch_order=True):
+    value = record(db, table, case.id, record_id)
+    require(value.get("status") != "voided", "此紀錄已作廢")
+    value.update(status="voided", void_reason=data.reason, void_reference=data.reference,
+                 void_at=data.occurred_at.isoformat(), void_actor=actor, revision=value['revision']+1)
+    save(db, table, value)
+    if table == "ledger":
+        validate_ledger(rows(db, "ledger", case.id))
+        if value.get('service_order_id') and touch_order:
+            order = record(db, 'service_orders', case.id, value['service_order_id'])
+            order['revision'] += 1
+            order['history'].append({'action': 'void_settlement', 'at': now_iso(), 'actor': actor,
+                                     'reference': data.reference, 'reason': data.reason, 'entry_id': value['id']})
+            save(db, 'service_orders', order)
+    elif case.status.value == "confirmed":
+        quote = accepted_quote(db, case.id)
+        update_booking_status(db, case, quote)
+    return value
+
+
 def void_record(case_id: str, table: str, record_id: str, data, actor: str) -> dict:
-    def execute(db, case):
-        value = record(db, table, case_id, record_id)
-        require(value.get("status") != "voided", "此紀錄已作廢")
-        value.update(status="voided", void_reason=data.reason, void_reference=data.reference, void_at=data.occurred_at.isoformat(), void_actor=actor)
-        save(db, table, value)
-        if table == "ledger":
-            validate_ledger(rows(db, "ledger", case_id))
-        elif case.status.value == "confirmed":
-            q = accepted_quote(db, case_id)
-            update_booking_status(db, case, q)
-        return value
-    return command(case_id, data, actor, f"{table}.{record_id}.void", execute)
+    return command(case_id, data, actor, f"{table}.{record_id}.void",
+                   lambda db, case: void_entry(db, case, table, record_id, data, actor))
 
-
-def ledger_totals(entries: list[dict]) -> dict:
-    totals = {}
-    for entry in entries:
-        if entry.get("status") == "voided":
-            continue
-        group = totals.setdefault(entry["currency"], {kind: Decimal(0) for kind in ["customer_receipt", "customer_refund", "supplier_payment", "supplier_refund"]})
-        group[entry["kind"]] += Decimal(entry["amount"])
-    return totals
 
 
 def validate_ledger(entries: list[dict]) -> None:
@@ -253,21 +261,33 @@ def validate_ledger(entries: list[dict]) -> None:
         require(values["customer_receipt"] >= values["customer_refund"] and values["supplier_payment"] >= values["supplier_refund"], "退款不可超過同案件、同幣別的實際收款／付款；請先核對原紀錄")
 
 
+def record_ledger(db, case, data, actor, quote_id, service_order_id=None):
+    payload = data.model_dump(mode='json', include={'kind','amount','currency','booking_id','memo','reference','occurred_at'})
+    if payload.get('booking_id'):
+        record(db, 'bookings', case.id, payload['booking_id'])
+    entry = new_record(case.id, 'money', {**payload, 'quote_id': quote_id, 'status': 'recorded'})
+    if service_order_id:
+        entry['service_order_id'] = service_order_id
+    save(db, 'ledger', entry)
+    validate_ledger(rows(db, 'ledger', case.id))
+    return entry
+
+
 def create_ledger_entry(case_id: str, data, actor: str) -> dict:
     def execute(db, case):
-        q = accepted_quote(db, case_id)
-        if data.booking_id:
-            record(db, "bookings", case_id, data.booking_id)
-        payload = data.model_dump(mode="json", exclude={"request_id", "checked"})
-        entry = save(db, "ledger", new_record(case_id, "money", {**payload, "quote_id": q["id"], "status": "recorded"}))
-        validate_ledger(rows(db, "ledger", case_id))
-        return entry
+        quote = accepted_quote(db, case_id)
+        if data.kind in {'customer_refund', 'supplier_refund'}:
+            active = [o for o in rows(db,'service_orders',case_id) if o['status'] not in TERMINAL]
+            require(not any(any(a['currency']==data.currency for a in (o.get('assessment') or {}).get('amounts',[])) for o in active),
+                    '此幣別已有處理中的工作單，請從工作單記錄實際退款，避免重複對帳')
+        return record_ledger(db, case, data, actor, quote['id'])
     return command(case_id, data, actor, "ledger.create", execute)
 
 
-def balances(quote: dict | None, entries: list[dict]) -> dict:
+def balances(quote: dict | None, entries: list[dict], service_orders=()) -> dict:
+    adjusted = final_dues(quote, entries, service_orders)
     ledger = ledger_totals(entries)
-    currencies = set(ledger) | set(quote["totals"] if quote else {})
+    currencies = set(ledger) | set(quote["totals"] if quote else {}) | set(adjusted)
     result = {}
     for currency in sorted(currencies):
         group = ledger.get(currency, {kind: Decimal(0) for kind in ["customer_receipt", "customer_refund", "supplier_payment", "supplier_refund"]})
@@ -275,7 +295,7 @@ def balances(quote: dict | None, entries: list[dict]) -> dict:
         net_paid = group["supplier_payment"] - group["supplier_refund"]
         due = quote["totals"].get(currency) if quote else None
         result[currency] = {**{k: f"{v:.2f}" for k, v in group.items()}, "net_received": f"{net_received:.2f}", "net_paid": f"{net_paid:.2f}", "net_cash": f"{net_received - net_paid:.2f}",
-            "quote_total": due, "customer_balance": f"{Decimal(due) - net_received:.2f}" if due is not None else None,
+            "quote_total": due, "expected_customer_total": adjusted.get(currency), "customer_balance": f"{Decimal(adjusted[currency]) - net_received:.2f}" if currency in adjusted else None,
             "expected_margin": quote["expected_margin"].get(currency) if quote else None}
     return result
 
@@ -338,15 +358,19 @@ def patch_document(case_id: str, document_id: str, data, actor: str) -> dict:
     return command(case_id, data, actor, f"document.{document_id}.patch", execute)
 
 
-def pack_source_from(case, quote: dict | None, bookings: list[dict], documents: list[dict], roster=None) -> dict:
+def pack_source_from(case, quote: dict | None, bookings: list[dict], documents: list[dict], roster=None, service_orders=()) -> dict:
     # Include voided/old bindings and every revision in the guard; no URL is fetched.
-    return {"case_snapshot": snapshot(case), "quote_id": quote["id"] if quote else None,
+    source = {"case_snapshot": snapshot(case), "quote_id": quote["id"] if quote else None,
             "quote_version": quote["version"] if quote else None, "bookings": bookings, "documents": documents, "roster": roster or {"used": False}}
+    pending = [{'id':o['id'],'revision':o['revision'],'status':o['status']} for o in service_orders if trip_pending(o, quote, bookings)]
+    if pending:
+        source['service_orders'] = pending
+    return source
 
 
 def pack_source(db, case, quote: dict) -> dict:
     from app.services.travel_files import roster_state
-    return pack_source_from(case, quote, rows(db, "bookings", case.id), rows(db, "documents", case.id), roster_state(db, case))
+    return pack_source_from(case, quote, rows(db, "bookings", case.id), rows(db, "documents", case.id), roster_state(db, case), rows(db, "service_orders", case.id))
 
 
 def document_current(doc: dict, source: dict) -> bool:
@@ -371,7 +395,7 @@ def document_current(doc: dict, source: dict) -> bool:
 
 
 def pack_blockers(source: dict, quote: dict) -> list[str]:
-    blockers = []
+    blockers = ["尚有改期／取消工作單未確認供應商結果"] if source.get("service_orders") else []
     if source.get("roster", {}).get("used") and not source["roster"]["current"]:
         blockers.append("旅客名冊人數不符或需重新核對")
     if not trip_matches(source["case_snapshot"], quote["case_snapshot"]):
@@ -438,9 +462,9 @@ def case_operations(case_id: str) -> dict:
         bundle["lifecycle"] = lifecycle_summary(case, bundle)
         quote = next((q for q in bundle["quotes"] if q["status"] == "accepted"), None)
         bundle["accepted_quote_id"] = quote["id"] if quote else None
-        bundle["balances"] = balances(quote, bundle["ledger"])
+        bundle["balances"] = balances(quote, bundle["ledger"], bundle["service_orders"])
         from app.services.travel_files import roster_state
-        source = pack_source_from(case, quote, bundle["bookings"], bundle["documents"], roster_state(db, case))
+        source = pack_source_from(case, quote, bundle["bookings"], bundle["documents"], roster_state(db, case), bundle["service_orders"])
         bundle["warnings"] = pack_blockers(source, quote) if quote else ["尚未記錄客人採用的報價"]
         # Compute hashes before adding response-only flags to the stored records.
         source_hash = fingerprint(source) if quote else None
@@ -458,6 +482,10 @@ def case_operations(case_id: str) -> dict:
         bundle["work_items"] = [deadline_state(i) for i in bundle["work_items"]]
         for pack in bundle["pretrip"]:
             pack["stale"] = not quote or pack["source_hash"] != source_hash or blocked
+        from app.services.service_orders import view, order_deadlines
+        bundle['service_order_active_count'] = len(order_deadlines(db,case))
+        bundle['eligible_service_booking_ids'] = [b['id'] for b in bundle['bookings'] if b['status']=='confirmed' and b['binding_current']]
+        bundle['service_orders'] = [view(db, case, o, bundle['ledger']) for o in bundle['service_orders']]
         bundle.pop("sales_state")
         for private_table in ("travellers", "rosters", "attachments"):
             bundle.pop(private_table)
@@ -474,9 +502,18 @@ def lifecycle_action(case) -> dict | None:
     with connect() as db:
         db.execute("BEGIN")
         tasks = [deadline_state(i) for i in rows(db, "work_items", case.id)]
+        from app.services.service_orders import order_deadlines
+        tasks.extend(order_deadlines(db,case))
         urgent = sorted((i for i in tasks if i["timing"] in {"overdue", "today"}), key=lambda i: i["due_at"])
         if urgent:
-            return {**action("tasks", "處理期限待辦", urgent[0]["title"]), "record_id": urgent[0]["id"]}
+            return {**action("service_orders" if urgent[0].get("source")=="service_order" else "tasks", "處理服務工作單" if urgent[0].get("source")=="service_order" else "處理期限待辦", urgent[0]["title"]), "record_id": urgent[0]["id"]}
+        service_orders = rows(db, 'service_orders', case.id)
+        open_order = next((o for o in tasks if o.get('source')=='service_order'), None)
+        if open_order:
+            return {**action('service_orders','接續服務工作單',open_order['title']), 'record_id':open_order['id']}
+        current_quote = next((q for q in rows(db,'quotes',case.id) if q['status']=='accepted'),None)
+        if ended_trip(current_quote, rows(db,'bookings',case.id), service_orders, rows(db,'ledger',case.id)):
+            return action('lifecycle','核對取消結案','旅行取消已記錄，請核對實際款項與後續服務')
         if case.status.value == "travelling":
             return action("case", "查看旅途中事項", "客人目前正在旅行")
         quotes = rows(db, "quotes", case.id)
@@ -520,6 +557,10 @@ def lifecycle_fingerprint(case, records: dict) -> str:
 
 def reopen_status(case, records: dict) -> str:
     quote = next((q for q in records["quotes"] if q["status"] == "accepted"), None)
+    last_close = next((e for e in reversed(records['case_events']) if e['action']=='close'),None)
+    prior_quote = next((q for q in records['quotes'] if last_close and q['id']==last_close.get('accepted_quote_id')),None)
+    if ended_trip(quote or prior_quote,records['bookings'],records.get('service_orders',[]),records['ledger']):
+        return 'intake'
     if quote:
         return booking_status(case, quote, records["bookings"])
     return "quoting" if records["quotes"] or records["sales_state"]["case_options"] or records["sales_state"]["case_option_selections"] else "intake"
@@ -531,30 +572,42 @@ def lifecycle_summary(case, records: dict) -> dict:
     sales = records["sales_state"]
     if any(r["status"] == "running" for t in ("flight_search_runs", "hotel_search_runs") for r in sales[t]) or any(t["status"] in {"running", "dispatched"} for t in sales["browser_tasks"]):
         common.append("尚有進行中的查價／瀏覽任務，請先完成或由管理員處理")
+    orders = records.get('service_orders', [])
+    common.extend('尚有未完成工作單：'+o['title'] for o in orders if o['status'] not in TERMINAL)
+    common.extend('已完成工作單款項／採用報價已變更，請重新開單核對：'+o['title'] for o in orders
+                  if o['status'] in {'completed','supplier_declined'} and not financial_current(o,quote,records['ledger'],orders))
     completed = list(common)
-    if not quote:
+    service_only = not quote and not any(q['status'] in {'draft','sent'} for q in records['quotes']) and not records['sales_state']['case_option_selections'] and not any(b['status']=='confirmed' for b in records['bookings']) and any(o['status']=='completed' and o['kind']=='incident' for o in orders)
+    if not quote and not service_only:
         completed.append("尚未記錄客人採用的報價")
-    else:
+    elif quote:
         from app.services.travel_files import roster_state_from
         roster = roster_state_from(case, records.get("travellers", []), records.get("rosters", []))
-        source = pack_source_from(case, quote, records["bookings"], records["documents"], roster)
+        source = pack_source_from(case, quote, records["bookings"], records["documents"], roster, records.get("service_orders", []))
         completed.extend(pack_blockers(source, quote))
         current_hash = fingerprint(source)
         if not any(p["status"] == "delivered" and p["source_hash"] == current_hash for p in records["pretrip"]):
             completed.append("尚未記錄目前完整行前摘要已人工交付")
-        for currency, balance in balances(quote, records["ledger"]).items():
-            if (balance["customer_balance"] is not None and Decimal(balance["customer_balance"]) != 0) or (balance["customer_balance"] is None and Decimal(balance["net_received"]) != 0):
-                completed.append(f"{currency} 客人款項尚未結清或幣別需核對")
+    amounts = balances(quote, records['ledger'], orders)
+    for currency, balance in amounts.items():
+        if (balance['customer_balance'] is not None and Decimal(balance['customer_balance']) != 0) or (balance['customer_balance'] is None and Decimal(balance['net_received']) != 0):
+            completed.append(f'{currency} 客人款項尚未結清或幣別需核對')
+    cancelled = list(common)
+    if not ended_trip(quote, records['bookings'], orders, records['ledger']):
+        cancelled.append('須先完成旅行取消工作單，且不得仍有有效訂購')
+    for currency, balance in amounts.items():
+        if balance['customer_balance'] is None or Decimal(balance['customer_balance']) != 0:
+            cancelled.append(f'{currency} 取消後最後應收／實際款項尚未核對一致')
     withdrawn = list(common)
     if any(b["status"] == "confirmed" for b in records["bookings"]):
         withdrawn.append("仍有有效訂購；取消／退款需先依旅行社原流程處理")
-    for currency, balance in balances(quote, records["ledger"]).items():
+    for currency, balance in amounts.items():
         if Decimal(balance["net_received"]) != 0 or Decimal(balance["net_paid"]) != 0:
             withdrawn.append(f"{currency} 收付款尚有未沖回金額，不能標記未成交")
     events = records["case_events"]
     last_close = next((e for e in reversed(events) if e["action"] == "close"), None)
     return {"expected_state": lifecycle_fingerprint(case, records), "completed_blockers": completed,
-            "withdrawn_blockers": withdrawn, "last_outcome": last_close.get("outcome") if last_close else None,
+            "withdrawn_blockers": withdrawn, "cancelled_blockers": cancelled, "last_outcome": last_close.get("outcome") if last_close else None,
             "reopen_status": reopen_status(case, records)}
 
 
@@ -567,7 +620,7 @@ def _lifecycle_command(case_id: str, data, actor: str, action: str) -> dict:
         if action == "close":
             blockers = summary[f"{data.outcome}_blockers"]
             require(not blockers, "；".join(blockers[:5]))
-            require(data.outcome != "withdrawn" or not quote or data.withdraw_adoption_checked is True,
+            require(data.outcome not in {"withdrawn", "cancelled"} or not quote or data.withdraw_adoption_checked is True,
                     "已有客人採用報價；未成交結案前須明確核對並撤回採用紀錄")
             next_status = "closed"
         else:
@@ -580,7 +633,7 @@ def _lifecycle_command(case_id: str, data, actor: str, action: str) -> dict:
             "accepted_quote_id": quote["id"] if quote else None,
             "supplier_settlement_checked": data.supplier_settlement_checked if action == "close" else None,
             "withdraw_adoption_checked": data.withdraw_adoption_checked if action == "close" else None})
-        if action == "close" and data.outcome == "withdrawn" and quote:
+        if action == "close" and data.outcome in {"withdrawn", "cancelled"} and quote:
             # Withdrawal is an explicit customer decision, never an implicit re-adoption on reopen.
             quote["status"] = "withdrawn"
             quote["events"].append({"action": "withdrawn", "reason": data.reason, "reference": data.reference,

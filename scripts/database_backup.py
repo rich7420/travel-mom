@@ -26,12 +26,14 @@ def validate(db: sqlite3.Connection) -> dict:
     if db.execute('PRAGMA foreign_key_check').fetchone():
         raise ValueError('SQLite foreign key check failed')
     version = db.execute('SELECT MAX(version) FROM schema_migrations').fetchone()[0]
-    if version not in {803, 804, 805}:
-        raise ValueError(f'Unsupported schema version: {version}; expected 803, 804 or 805')
+    if version not in {803, 804, 805, 806}:
+        raise ValueError(f'Unsupported schema version: {version}; expected 803, 804, 805 or 806')
     tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     required = REQUIRED_TABLES | ({'agency_case_events'} if version >= 804 else set())
     if version >= 805:
         required |= {'agency_travellers', 'agency_rosters', 'agency_attachments'}
+    if version >= 806:
+        required.add('agency_service_orders')
     if not required <= tables:
         raise ValueError('Snapshot is missing required application tables')
     if version >= 804:

@@ -160,7 +160,7 @@ def main():
                     for index in range(2):
                         assert api.post(path+'/work-items',json={'request_id':str(uuid4()),'title':'合成交接 '+str(index),'kind':'change','owner':'媽媽','due_at':(datetime.now(timezone.utc)+timedelta(hours=2)).isoformat(),'source':'供應商通知'}).status_code==200
                 with sync_playwright() as pw:
-                    browser=getattr(pw,args.browser).launch();context=browser.new_context(viewport={'width':1360,'height':900},locale='zh-TW');page=context.new_page();page.on('pageerror',lambda error:errors.append(str(error)));accept=[True];page.on('dialog',lambda d:d.accept() if accept[0] else d.dismiss())
+                    browser=getattr(pw,args.browser).launch();context=browser.new_context(viewport={'width':1360,'height':900},locale='zh-TW');page=context.new_page();page.on('pageerror',lambda error:(errors.append(str(error)),print('Browser error:',str(error),flush=True)));accept=[True];page.on('dialog',lambda d:d.accept() if accept[0] else d.dismiss())
                     page.goto(base);page.wait_for_function('()=>state.cases.length===1&&state.preferences!==null')
                     page.evaluate('(id)=>MomApp.openCase(id)',c);page.locator('#sheetBody [data-module=pretrip]').click();page.locator('[data-action=files-open]').click();expect(page.locator('.private-section')).to_have_count(2);check('roster and files reuse pretrip sheet')
                     page.locator('[data-intent=traveller]').click();form=page.locator('#travelFileForm');expect(form).to_be_visible()
@@ -182,7 +182,7 @@ def main():
                     selector=f'[data-intent=traveller][data-id="{traveller["id"]}"]'
                     page.locator(selector).click();form=page.locator('#travelFileForm')
                     form.locator('[name=name]').fill('第一頁尚未儲存')
-                    second=context.new_page();second.on('pageerror',lambda error:errors.append(str(error)))
+                    second=context.new_page();second.on('pageerror',lambda error:(errors.append(str(error)),print('Browser error:',str(error),flush=True)))
                     second.goto(base);second.wait_for_function('()=>state.preferences!==null')
                     second.evaluate('(id)=>MomApp.openCase(id)',c)
                     second.locator('#sheetBody [data-module=pretrip]').click();second.locator('[data-action=files-open]').click()

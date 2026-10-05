@@ -43,7 +43,7 @@ def test_encrypted_bundle_roundtrip_permissions_and_real_restored_rows(client,cr
     assert b'PRIVATE-' not in (bundle/'database.fernet').read_bytes()
     restored=tmp_path/'restored.db';files=tmp_path/'restored-files'
     info=restore(bundle,restored,files,crypto_settings.pii_fernet_key)
-    assert info['attachments']==1 and info['schema_version']==805
+    assert info['attachments']==1 and info['schema_version']==806
     with closing(sqlite3.connect(restored)) as db:
         row=json.loads(db.execute('SELECT payload_json FROM agency_travellers').fetchone()[0])
         assert b'PRIVATE-PASSPORT' in Fernet(crypto_settings.pii_fernet_key.encode()).decrypt(row['encrypted'])

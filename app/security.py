@@ -51,6 +51,10 @@ def operator_authorized(request: Request) -> bool:
 # Exact exemptions only. Channel handlers authenticate their own signed payloads.
 _ACCESS_EXEMPT = {("GET", "/livez"), ("POST", "/webhooks/line"), ("POST", "/webhooks/telegram")}
 _OPERATOR_ROUTES = (
+    ("GET", r"/api/mom/cases/[^/]+/service-order-receipts/[^/]+"),
+    ("POST", r"/api/mom/cases/[^/]+/service-orders"),
+    ("PATCH", r"/api/mom/cases/[^/]+/service-orders/[^/]+"),
+    ("POST", r"/api/mom/cases/[^/]+/service-orders/[^/]+/(?:assessment|decision|progress|settlement|resolve|reopen)"),
     ("GET", r"/api/(?:auth/session|airlines|hotels/networks|cases(?:/[^/]+)?)"),
     ("POST", r"/api/(?:cases|customer-reply|browser/(?:flight-search|hotel-search))"),
     ("PATCH", r"/api/cases/[^/]+"),
