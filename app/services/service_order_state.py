@@ -51,15 +51,30 @@ def trip_pending(order, quote=None, bookings=()):
         for bid, revision in order.get('result_bindings', result['result_bookings']).items())
 
 
-def final_dues(quote, ledger, orders):
-    due = dict(quote['totals'] if quote else {})
+def latest_resolved_amounts(orders):
+    latest = {}
     for order in sorted(orders, key=lambda item: (item.get('resolved_at', ''), item['id'])):
-        if order['status'] not in {'completed', 'supplier_declined'} or not cash_state(order, ledger)['current']:
-            continue
-        if order.get('balance_quote_id') != (quote['id'] if quote else None) and not (not quote and order.get('end_trip')):
+        if order['status'] not in {'completed', 'supplier_declined'}:
             continue
         for item in (order.get('assessment') or {}).get('amounts', []):
-            due[item['currency']] = item['final_customer_due']
+            latest[item['currency']] = (order, item)
+    return latest
+
+
+def final_dues(quote, ledger, orders):
+    due = dict(quote['totals'] if quote else {})
+    cancellation = max((o for o in orders if o['status'] == 'completed' and o.get('end_trip')),
+                       key=lambda o: (o.get('resolved_at', ''), o['id']), default=None)
+    withdrawn_quote_id = cancellation.get('balance_quote_id') if cancellation else None
+    for currency, (order, item) in latest_resolved_amounts(orders).items():
+        if not cash_state(order, ledger)['current']:
+            continue
+        binding = order.get('balance_quote_id')
+        if quote and binding != quote['id']:
+            continue
+        if not quote and binding is not None and (not cancellation or binding != withdrawn_quote_id):
+            continue
+        due[currency] = item['final_customer_due']
     return due
 
 
@@ -76,8 +91,8 @@ def financial_current(order, quote, ledger, orders=()):
     if not quote or not (order.get('assessment') or {}).get('amounts'):
         # Withdrawing adoption at business closure never undoes settled cash.
         return True
-    resolved = [o for o in orders if o['status'] in {'completed','supplier_declined'}
-                and (o.get('assessment') or {}).get('amounts')]
-    latest = max(resolved,key=lambda o:(o.get('resolved_at',''),o['id']),default=order)
-    # A newer resolved whole-case assessment supersedes historical quote binding.
-    return latest['id'] != order['id'] or order.get('balance_quote_id') == quote['id']
+    latest = latest_resolved_amounts(orders)
+    # Supersession covers only explicitly assessed currencies, never other money.
+    return all(latest.get(item['currency'], (order, item))[0]['id'] != order['id']
+               or order.get('balance_quote_id') == quote['id']
+               for item in order['assessment']['amounts'])

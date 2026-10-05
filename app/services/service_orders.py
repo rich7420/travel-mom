@@ -217,11 +217,13 @@ def decide(case_id, order_id, data, actor):
     return mutate(case_id, order_id, data, actor, 'decision', apply)
 
 
-def checked_change_bookings(db, case, order, ids):
+def checked_change_bookings(db, case, order, ids, revisions):
     quote = ops.accepted_quote(db, case.id)
     targets = [record(db, 'bookings', case.id, bid) for bid in order['booking_ids']]
     replacements = [record(db, 'bookings', case.id, bid) for bid in ids]
     ops.require(replacements and len(set(ids)) == len(replacements), '請選不重複的實際異動後訂購')
+    ops.require(set(revisions) == set(ids), '請核對全部異動後訂購的目前修訂')
+    ops.require(all(b['revision'] == revisions[b['id']] for b in replacements), '異動後訂購已更新，請返回最新工作單重新核對；本次未儲存')
     ops.require(all(b['status']=='confirmed' and b['quote_id']==quote['id'] and ops.trip_matches(b['case_snapshot'],ops.snapshot(case)) for b in replacements), '異動後訂購須符合目前採用報價與需求')
     ops.require({b['kind'] for b in targets}<={b['kind'] for b in replacements}, '異動結果未涵蓋原訂購種類')
     ops.require(all(b['status']=='voided' or b['id'] in ids and b['revision']>order['target_revisions'][b['id']] for b in targets), '請先重新核對沿用原訂購，或停用已被替換的原紀錄')
@@ -247,14 +249,14 @@ def progress(case_id, order_id, data, actor):
             order.update(execution={**evidence(data, actor), 'assessment_revision': value['revision']}, status='processing')
         elif data.stage == 'rebind_result':
             ops.require(order['kind']=='change' and (order.get('supplier_result') or {}).get('outcome')=='confirmed', '只有已確認異動結果可以重新核對關聯')
-            replacements = checked_change_bookings(db, case, order, data.result_booking_ids)
+            replacements = checked_change_bookings(db, case, order, data.result_booking_ids, data.booking_revisions)
             order['result_bindings'] = {b['id']:b['revision'] for b in replacements}
         elif data.stage == 'void_settlement':
             entry = record(db, 'ledger', case.id, data.entry_id)
             ops.require(entry.get('service_order_id') == order_id, '收付紀錄不屬於此工作單')
             ops.void_entry(db, case, 'ledger', entry['id'], data, actor, touch_order=False)
         else:
-            ops.require(not data.booking_revisions or order['kind']=='cancellation' and data.outcome=='confirmed', '此結果不適用原訂購修訂欄位')
+            ops.require(not data.booking_revisions or order['kind'] in {'cancellation', 'change'} and data.outcome=='confirmed', '此結果不適用訂購修訂欄位')
             ops.require(not data.result_booking_ids or order['kind']=='change' and data.outcome=='confirmed', '此結果不適用異動後訂購欄位')
             ops.require(approved(order) and order.get('execution') and not order.get('supplier_result'), '請先開始處理；供應商結果不可覆寫，修正請追加紀錄')
             result = {**evidence(data, actor), 'outcome': data.outcome, 'details': data.details, 'assessment_revision':order['assessment']['revision'], 'result_bookings': {}}
@@ -270,8 +272,12 @@ def progress(case_id, order_id, data, actor):
                                    void_reference=data.reference, void_at=data.occurred_at.isoformat(), void_actor=actor,
                                    cancellation_order_id=order_id, revision=booking['revision']+1)
                     save(db, 'bookings', booking)
+                if case.status.value == 'confirmed':
+                    quote = next((q for q in rows(db, 'quotes', case.id) if q['status'] == 'accepted'), None)
+                    if quote:
+                        ops.update_booking_status(db, case, quote)
             elif data.outcome == 'confirmed' and order['kind'] == 'change':
-                replacements = checked_change_bookings(db, case, order, data.result_booking_ids)
+                replacements = checked_change_bookings(db, case, order, data.result_booking_ids, data.booking_revisions)
                 result['result_bookings'] = {b['id']: b['revision'] for b in replacements}
             order.update(supplier_result=result, status='settling')
     return mutate(case_id, order_id, data, actor, data.stage, apply)

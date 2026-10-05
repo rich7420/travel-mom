@@ -13,7 +13,7 @@ from app.services import service_orders
 
 
 @pytest.fixture(autouse=True)
-def isolate_service_case_priority():
+def isolate_service_case_priority(client):
     # The legacy suite shares one DB. Do not leave our synthetic due-today orders
     # competing with later tests' four-card priority assertions.
     with connect() as db:
@@ -49,6 +49,9 @@ def start(client, case, order):
 
 
 def result(client, case, order, **fields):
+    if order['kind'] == 'change' and 'booking_revisions' not in fields:
+        current = {b['id']: b['revision'] for b in bundle(client, case)['bookings']}
+        fields['booking_revisions'] = {bid: current[bid] for bid in fields.get('result_booking_ids', [])}
     return ok(action(client, case, order, 'progress', stage='supplier_result', outcome='confirmed', details='供應商實際完成通知', **fields))
 
 
@@ -210,7 +213,7 @@ def test_change_binding_correction_appends_without_replacing_supplier_result(cli
     order=result(client,case,order,result_booking_ids=[updated['id']]);permanent=order['supplier_result']
     later=ok(post(client,case,f"bookings/{book['id']}/rebind",evidence(reason='訂購姓名更正核對',customer_details='新內容已更正')))
     assert any('實際訂購結果已變更' in text for text in bundle(client,case)['service_orders'][0]['resolution_blockers'])
-    order=ok(action(client,case,order,'progress',stage='rebind_result',details='供應商已重新核對姓名更正',result_booking_ids=[later['id']]))
+    order=ok(action(client,case,order,'progress',stage='rebind_result',details='供應商已重新核對姓名更正',result_booking_ids=[later['id']],booking_revisions={later['id']:later['revision']}))
     assert order['supplier_result']==permanent and order['result_bindings']=={later['id']:later['revision']}
     assert order['history'][-1]['action']=='rebind_result'
     assert not any('實際訂購結果已變更' in text for text in bundle(client,case)['service_orders'][0]['resolution_blockers'])
@@ -287,3 +290,108 @@ def test_sequential_changes_only_latest_final_due_needs_current_quote(client):
     assert next(o for o in b['service_orders'] if o['id']==first['id'])['revision']==first['revision']
     assert not b['lifecycle']['completed_blockers']
     ok(post(client,case,'lifecycle/close',decision(client,case,outcome='completed',supplier_settlement_checked=True)))
+
+
+def test_money_supersession_is_per_currency_and_keeps_stale_deadlines(client):
+    from test_case_operations import quote_payload
+    case,_=family(client);accepted(client,case)
+    first=start(client,case,assessed(client,case,create(client,case,'refund'),[
+        {'currency':'TWD','final_customer_due':'40000'}, {'currency':'JPY','final_customer_due':'0'}]))
+    first=ok(resolve(client,case,result(client,case,first)))
+    quote=ok(post(client,case,'quotes',quote_payload()))
+    ok(post(client,case,f"quotes/{quote['id']}/sent",evidence()))
+    ok(post(client,case,f"quotes/{quote['id']}/accept",evidence(amend=True,reason='客人確認新版條件')))
+    for currency in ['JPY','TWD']:
+        order=start(client,case,assessed(client,case,create(client,case),[
+            {'currency':currency,'final_customer_due':'0' if currency=='JPY' else '45000'}]))
+        ok(resolve(client,case,result(client,case,order)))
+        current=bundle(client,case)
+        historical=next(o for o in current['service_orders'] if o['id']==first['id'])
+        assert historical['financial_current'] is (currency=='TWD')
+        assert historical['revision']==first['revision']
+        tasks=client.get('/api/mom/work-items').json()['items']
+        assert any(t.get('service_order_id')==first['id'] for t in tasks) is (currency=='JPY')
+        if currency=='JPY':
+            assert current['balances']['TWD']['expected_customer_total']=='50100.30'
+            assert any('重新開單核對' in text for text in current['lifecycle']['completed_blockers'])
+        else:
+            assert current['balances']['TWD']['expected_customer_total']=='45000.00'
+            assert not any('重新開單核對' in text for text in current['lifecycle']['completed_blockers'])
+
+
+def test_voided_latest_money_does_not_restore_old_final_due(client):
+    case,_=family(client);quote=accepted(client,case)
+    old=start(client,case,assessed(client,case,create(client,case),[{'currency':'TWD','final_customer_due':'40000'}]))
+    old=ok(resolve(client,case,result(client,case,old)))
+    newer=start(client,case,assessed(client,case,create(client,case),[{'currency':'TWD','customer_receipt':'100','final_customer_due':'45000'}]))
+    newer=result(client,case,newer)
+    newer=ok(action(client,case,newer,'settlement',kind='customer_receipt',amount='100',currency='TWD'))
+    newer=ok(resolve(client,case,newer))
+    linked=next(e for e in bundle(client,case)['ledger'] if e.get('service_order_id')==newer['id'])
+    ok(post(client,case,f"ledger/{linked['id']}/void",evidence(reason='原金額誤植')))
+    current=bundle(client,case)
+    assert current['balances']['TWD']['expected_customer_total']==quote['totals']['TWD']
+    assert not next(o for o in current['service_orders'] if o['id']==newer['id'])['financial_current']
+    assert any('重新開單核對' in text for text in current['lifecycle']['completed_blockers'])
+
+
+def test_cancelled_case_reopen_retains_latest_refund_final_due(client):
+    case,_=family(client);accepted(client,case)
+    ok(post(client,case,'ledger',evidence(kind='customer_receipt',amount='100',currency='TWD')))
+    cancel=start(client,case,assessed(client,case,create(client,case,'refund'),[{'currency':'TWD','final_customer_due':'100'}]))
+    ok(resolve(client,case,result(client,case,cancel),end_trip=True))
+    refund=start(client,case,assessed(client,case,create(client,case,'refund'),[{'currency':'TWD','customer_refund':'20','final_customer_due':'80'}]))
+    refund=result(client,case,refund)
+    refund=ok(action(client,case,refund,'settlement',kind='customer_refund',amount='20',currency='TWD'))
+    ok(resolve(client,case,refund))
+    ok(post(client,case,'lifecycle/close',decision(client,case,outcome='cancelled',supplier_settlement_checked=True,withdraw_adoption_checked=True)))
+    ok(post(client,case,'lifecycle/reopen',decision(client,case)))
+    current=bundle(client,case)
+    assert current['balances']['TWD']['expected_customer_total']=='80.00'
+    assert current['balances']['TWD']['customer_balance']=='0.00'
+    assert not current['lifecycle']['cancelled_blockers']
+    ok(post(client,case,'lifecycle/close',decision(client,case,outcome='cancelled',supplier_settlement_checked=True)))
+
+
+def test_change_result_and_rebind_require_reviewed_booking_revisions(client):
+    case,_=family(client);accepted(client,case);book=verified_booking(client,case)
+    order=start(client,case,assessed(client,case,create(client,case,'change',[book])))
+    reviewed=ok(post(client,case,f"bookings/{book['id']}/rebind",evidence(reason='完成異動核對',customer_details='已核對 A')))
+    payload=evidence(expected_revision=order['revision'],stage='supplier_result',outcome='confirmed',details='已核對 A',
+                     result_booking_ids=[book['id']],booking_revisions={book['id']:reviewed['revision']})
+    later=ok(post(client,case,f"bookings/{book['id']}/rebind",evidence(reason='另一頁更正',customer_details='尚未核對 B')))
+    endpoint=f"service-orders/{order['id']}/progress"
+    for revisions in [{}, {book['id']:reviewed['revision']}, {book['id']:later['revision'],'foreign':1}]:
+        assert post(client,case,endpoint,{**payload,'request_id':intent()['request_id'],'booking_revisions':revisions}).status_code==409
+        current=bundle(client,case)['service_orders'][0]
+        assert current['revision']==order['revision'] and current['history']==order['history']
+        assert current['supplier_result'] is None
+    for invalid in [True, -1, 1.5]:
+        assert post(client,case,endpoint,{**payload,'request_id':intent()['request_id'],'booking_revisions':{book['id']:invalid}}).status_code==422
+    order=ok(post(client,case,endpoint,{**payload,'booking_revisions':{book['id']:later['revision']}}))
+    permanent=order['supplier_result']
+    another=ok(post(client,case,f"bookings/{book['id']}/rebind",evidence(reason='再次核對更正',customer_details='新版 C')))
+    rebinding=dict(stage='rebind_result',details='已核對 B',result_booking_ids=[book['id']])
+    assert action(client,case,order,'progress',**rebinding).status_code==422
+    assert action(client,case,order,'progress',**rebinding,booking_revisions={book['id']:later['revision']}).status_code==409
+    current=bundle(client,case)['service_orders'][0]
+    assert current['revision']==order['revision'] and current['history']==order['history']
+    order=ok(action(client,case,order,'progress',**rebinding,booking_revisions={book['id']:another['revision']}))
+    assert order['supplier_result']==permanent
+    assert order['result_bindings']=={book['id']:another['revision']}
+
+
+@pytest.mark.parametrize('manual_status,expected', [('confirmed','booking'),('travelling','travelling'),('intake','intake')])
+@pytest.mark.parametrize('full', [False,True])
+def test_supplier_cancellation_updates_booking_status_preserving_manual_progress(client,manual_status,expected,full):
+    case,_=family(client);accepted(client,case)
+    books=[verified_booking(client,case),verified_booking(client,case,'hotel')]
+    assert client.patch(f"/api/cases/{case['id']}",json={'status':manual_status}).status_code==200
+    targets=books if full else books[1:]
+    order=start(client,case,assessed(client,case,create(client,case,'cancellation',targets)))
+    result(client,case,order,booking_revisions={b['id']:b['revision'] for b in targets})
+    current=bundle(client,case)
+    assert current['case']['status']==expected
+    assert sum(b['status']=='confirmed' for b in current['bookings'])==(0 if full else 1)
+    next_action=client.get(f"/api/mom/cases/{case['id']}").json()['next_action']
+    assert next_action['kind']=='service_orders' and next_action['record_id']==order['id']

@@ -264,6 +264,59 @@ def main():
                         check('browser-generated cross-site Origin reaches app and gets 403', response.value.status == 403 and response.value.json().get('detail') == 'request origin not allowed')
                         check('Origin rejection leaves case count unchanged', len(api.get('/api/cases').json()) == before)
                         attacker.close()
+                        # Real signed identities share a tab while uncertain service writes
+                        # retain metadata. Neither account may replay the other's UUID.
+                        page.on('dialog', lambda dialog: dialog.accept())
+                        def service_orders():
+                            page.evaluate('(id)=>MomApp.openCase(id)', c)
+                            page.locator('#sheetBody [data-module=tasks]').click()
+                            page.locator('[data-action=service-open]').click()
+                            expect(page.locator('#sheetBody > h3')).to_have_text('改退與旅中工作單')
+
+                        def service_form(intent):
+                            target=page.locator(f'#sheetBody [data-intent="{intent}"]')
+                            target.evaluate('(el)=>{if(el.closest("details"))el.closest("details").open=true;}')
+                            target.click()
+                            expect(page.locator('#serviceOrderForm')).to_be_visible()
+                            return page.locator('#serviceOrderForm')
+
+                        def service_proof(form):
+                            form.locator('[name=reference]').fill('合成身分核對')
+                            form.locator('[name=checked]').check()
+
+                        service_orders(); form=service_form('create')
+                        form.locator('[name=title]').fill('媽媽帳號待確認工作單')
+                        form.locator('[name=request_details]').fill('合成需求')
+                        service_proof(form)
+                        page.evaluate("""()=>{window.originalFetch=fetch;window.fetch=async(url,opts)=>{const r=await originalFetch(url,opts);if(String(url).endsWith('/service-orders')&&opts?.method==='POST')throw new TypeError('synthetic committed response lost');return r;};}""")
+                        form.locator('button[type=submit]').click()
+                        expect(form.locator('[data-action=service-reconcile]')).to_be_visible()
+                        metadata=page.evaluate('(id)=>JSON.parse(sessionStorage.getItem("travel-service-intents:"+id))',c)
+                        order=api.get(path+'/operations').json()['service_orders'][0]
+                        check('uncertain service write retains verified actor metadata only',len(metadata)==1 and metadata[0]['actor']==MOM and '合成身分核對' not in json.dumps(metadata))
+                        context.set_extra_http_headers(headers(admin_token));page.reload()
+                        page.wait_for_function('(email)=>state.auth?.email===email&&state.preferences!==null',arg=ADMIN)
+                        service_orders()
+                        expect(page.locator('#sheetBody')).to_contain_text('其他登入身分的待確認操作')
+                        check('new signed actor reads orders without replaying foreign intent',len(api.get(path+'/operations').json()['service_orders'])==1 and page.evaluate('(id)=>JSON.parse(sessionStorage.getItem("travel-service-intents:"+id))[0].actor',c)==MOM)
+                        form=service_form('create');form.locator('[name=title]').fill('管理員獨立工作單');form.locator('[name=request_details]').fill('另一筆合成需求');service_proof(form);form.locator('button[type=submit]').click()
+                        expect(page.locator('#serviceOrderForm')).to_have_count(0)
+                        check('successful new-actor write preserves original uncertain metadata',len(api.get(path+'/operations').json()['service_orders'])==2 and len(page.evaluate('(id)=>JSON.parse(sessionStorage.getItem("travel-service-intents:"+id))',c))==1)
+                        # Exercise legacy metadata with no actor against the real 409 guard.
+                        page.evaluate('(id)=>{const key="travel-service-intents:"+id;const items=JSON.parse(sessionStorage.getItem(key));delete items[0].actor;sessionStorage.setItem(key,JSON.stringify(items));}',c)
+                        check('backend still denies another actor receipt',api.get(path+'/service-order-receipts/'+metadata[0]['request_id'],headers=headers(admin_token)).status_code==409)
+                        service_orders();expect(page.locator('#sheetBody')).to_contain_text('其他登入身分的待確認操作')
+                        check('legacy wrong-actor receipt does not block list and remains stored',page.evaluate('(id)=>JSON.parse(sessionStorage.getItem("travel-service-intents:"+id))[0].unavailable_for',c)==ADMIN and page.locator('#sheetBody [data-action=service-detail]').count()==2)
+                        service_orders();check('reopening list stays usable after foreign legacy receipt',page.locator('#sheetBody [data-action=service-detail]').count()==2)
+                        context.set_extra_http_headers(headers(mom_token));page.reload()
+                        page.wait_for_function('(email)=>state.auth?.email===email&&state.preferences!==null',arg=MOM)
+                        service_orders()
+                        check('original signed actor reconciles legacy receipt without duplicate write',page.evaluate('(id)=>sessionStorage.getItem("travel-service-intents:"+id)===null',c) and len(api.get(path+'/operations').json()['service_orders'])==2)
+                        page.locator(f'#sheetBody [data-action=service-detail][data-id="{order["id"]}"]').click();form=service_form('note');form.locator('[name=message]').fill('原登入填寫的內容');service_proof(form)
+                        context.set_extra_http_headers(headers(admin_token));page.evaluate('()=>loadSession()')
+                        history_before=api.get(path+'/operations').json()['service_orders'][0]['history']
+                        form.locator('button[type=submit]').click();expect(form.locator('.form-error')).to_contain_text('操作帳號已變更')
+                        check('account change during form blocks submission and preserves typed content',form.locator('[name=message]').input_value()=='原登入填寫的內容' and api.get(path+'/operations').json()['service_orders'][0]['history']==history_before)
                         admin_context = browser.new_context(ignore_https_errors=True, extra_http_headers=headers(admin_token))
                         admin = admin_context.new_page()
                         admin.on('pageerror', lambda e: errors.append(str(e)))

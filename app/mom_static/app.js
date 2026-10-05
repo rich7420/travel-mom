@@ -782,6 +782,7 @@ window.MomApp=Object.freeze({
   currentSheetGeneration:()=>sheetGeneration,markFormCommitted,
   escapeHtml,field,localDateTime,friendlyError,showToast,ReauthenticationError,
   getCases:()=>state.cases,
+  getActor:()=>state.auth?.email || 'operator',
   registerAction(name,handler){if(builtInActionNames.has(name)||extraActions.has(name))throw new Error('Duplicate action '+name);extraActions.set(name,handler);},
   registerForm(name,handler){if(builtInFormNames.has(name)||extraForms.has(name))throw new Error('Duplicate form '+name);extraForms.set(name,handler);},
   registerView(name,handler){if(['today','cases','new','assistant','settings'].includes(name)||extraViews.has(name))throw new Error('Duplicate view '+name);extraViews.set(name,handler);},

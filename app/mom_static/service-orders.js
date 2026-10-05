@@ -84,32 +84,55 @@
     ) +
     check("checked", "我已核對實際情況與上述依據。");
   const key = (c) => "travel-service-intents:" + c;
-  function pending(c) {
+  function storedIntents(c) {
     try {
-      return JSON.parse(sessionStorage.getItem(key(c)) || "[]");
+      const items = JSON.parse(sessionStorage.getItem(key(c)) || "[]");
+      return Array.isArray(items) ? items : [];
     } catch {
       return [];
     }
   }
+  function belongsToActor(item) {
+    return (
+      (!item.actor || item.actor === A.getActor()) &&
+      item.unavailable_for !== A.getActor()
+    );
+  }
+  const pending = (c) => storedIntents(c).filter(belongsToActor);
+  const foreignNotice = (c) =>
+    storedIntents(c).some((item) => !belongsToActor(item))
+      ? warn(
+          "此裝置有其他登入身分的待確認操作。請用原帳號核對上次結果，勿重複記錄款項。",
+        )
+      : "";
   function retain(c, item) {
-    const items = pending(c).filter((v) => v.request_id !== item.request_id);
+    const items = storedIntents(c).filter(
+      (v) => v.request_id !== item.request_id,
+    );
     items.push(item);
     sessionStorage.setItem(key(c), JSON.stringify(items));
   }
   function forget(c, id) {
-    const items = pending(c).filter((v) => v.request_id !== id);
+    const items = storedIntents(c).filter((v) => v.request_id !== id);
     if (items.length) sessionStorage.setItem(key(c), JSON.stringify(items));
     else sessionStorage.removeItem(key(c));
   }
   async function recover(c) {
     let committed = 0;
     for (const item of pending(c)) {
-      const result = await A.api(
-        `${path(c)}/service-order-receipts/${item.request_id}`,
-      );
-      if (result.committed) {
-        forget(c, item.request_id);
-        committed++;
+      try {
+        const result = await A.api(
+          `${path(c)}/service-order-receipts/${item.request_id}`,
+        );
+        if (result.committed) {
+          forget(c, item.request_id);
+          committed++;
+        }
+      } catch (err) {
+        if (err.status !== 409) throw err;
+        // Legacy actor-less metadata cannot be assigned to this login on a 409.
+        // Keep it for the original actor; don't replay it or block case reading.
+        retain(c, { ...item, unavailable_for: A.getActor() });
       }
     }
     return committed;
@@ -130,7 +153,7 @@
     return `<article class="operation-record service-order" data-order-id="${E(o.id)}"><div class="card-top"><h3>${E(o.title)}</h3><span class="case-status">${E(states[o.status])}</span></div>${note(`${kinds[o.kind]} · ${o.owner}${o.urgency === "urgent" ? " · 緊急" : ""}\n期限：${date(o.due_at)}（台北）`)}${o.end_trip ? warn("此單已記錄旅行取消；請核對案件款項後使用「取消旅行結案」。") : ""}${o.status === "completed" && !o.financial_current ? warn("已完成後款項或採用報價變更，請重新開單核對。") : ""}${button("查看與處理", "service-detail", c, o.id)}</article>`;
   }
   function listing(c, b, recovered = 0) {
-    return `<h3 tabindex="-1">改退與旅中工作單</h3>${note("接住客人需求、供應商條件、客人決定、實際結果及收退款。供應商操作、緊急聯絡與銀行轉帳請依原流程完成。")}${recovered ? warn("已確認上次工作單儲存成功，沒有再次送出。") : ""}${pending(c).length ? warn("有上次尚未確認的操作。請打開原工作單重新核對並填寫；系統保留重試編號，避免重複儲存。") : ""}${b.case.status === "closed" ? warn("案件已結案，工作單僅供查看。") : button("新增改退／旅中工作單", "service-form", c, "", 'data-intent="create"')}${
+    return `<h3 tabindex="-1">改退與旅中工作單</h3>${note("接住客人需求、供應商條件、客人決定、實際結果及收退款。供應商操作、緊急聯絡與銀行轉帳請依原流程完成。")}${foreignNotice(c)}${recovered ? warn("已確認上次工作單儲存成功，沒有再次送出。") : ""}${pending(c).length ? warn("有上次尚未確認的操作。請打開原工作單重新核對並填寫；系統保留重試編號，避免重複儲存。") : ""}${b.case.status === "closed" ? warn("案件已結案，工作單僅供查看。") : button("新增改退／旅中工作單", "service-form", c, "", 'data-intent="create"')}${
       b.service_orders.length
         ? b.service_orders
             .slice()
@@ -161,7 +184,7 @@
       if (!A.sheetRequestCurrent(stamp)) return;
       const o = b.service_orders.find((v) => v.id === id);
       $("#sheetBody").innerHTML =
-        id && o ? detail(c, b, o) : listing(c, b, recovered);
+        id && o ? foreignNotice(c) + detail(c, b, o) : listing(c, b, recovered);
       if (id && !o)
         $("#sheetBody").insertAdjacentHTML(
           "afterbegin",
@@ -508,12 +531,12 @@
         outcome: v.outcome,
         details: v.details,
         booking_revisions:
-          o.kind === "cancellation" && v.outcome === "confirmed"
-            ? Object.fromEntries(
-                o.booking_ids.map((id) => [
-                  id,
-                  b.bookings.find((v) => v.id === id)?.revision,
-                ]),
+          v.outcome === "confirmed"
+            ? bookingRevisions(
+                b,
+                o.kind === "cancellation"
+                  ? o.booking_ids
+                  : new FormData(f).getAll("result_booking_ids"),
               )
             : {},
         result_booking_ids:
@@ -539,6 +562,10 @@
         stage: "rebind_result",
         details: v.details,
         result_booking_ids: new FormData(f).getAll("result_booking_ids"),
+        booking_revisions: bookingRevisions(
+          b,
+          new FormData(f).getAll("result_booking_ids"),
+        ),
       });
       endpoint = "progress";
     } else if (intent === "settle") {
@@ -684,6 +711,11 @@
       build,
       endpoint,
       method,
+      actor: A.getActor(),
+      resultRevisions: bookingRevisions(
+        b,
+        b.bookings.map((item) => item.id),
+      ),
       revision: o?.revision,
       assessmentRevision: o?.assessment?.revision,
       bookings: JSON.stringify(
@@ -699,6 +731,14 @@
     A.setSheetBack(
       () => open(c, id, `[data-intent="${intent}"]`),
       "返回" + (id ? "工作單" : "工作單列表"),
+    );
+  }
+  function bookingRevisions(b, ids) {
+    return Object.fromEntries(
+      ids.map((id) => [
+        id,
+        b.bookings.find((item) => item.id === id)?.revision,
+      ]),
     );
   }
   async function refreshConflict(f, op) {
@@ -718,13 +758,21 @@
       "settle",
       "resolve",
     ].includes(op.intent);
+    const selectedChanged = new FormData(f)
+      .getAll("result_booking_ids")
+      .some(
+        (id) =>
+          b.bookings.find((item) => item.id === id)?.revision !==
+          op.resultRevisions[id],
+      );
     op.locked =
       !o ||
       b.case.status === "closed" ||
       !o.actions.includes(op.intent) ||
       (consequential &&
         (o.assessment?.revision !== op.assessmentRevision ||
-          refs !== op.bookings));
+          refs !== op.bookings ||
+          selectedChanged));
     if (o && !op.locked) op.revision = o.revision;
     $("#serviceConflict").innerHTML =
       warn(
@@ -740,6 +788,10 @@
   }
   async function submit(f) {
     const op = f.serviceOperation;
+    if (op.actor !== A.getActor())
+      throw new Error(
+        "操作帳號已變更，請返回工作單核對上次結果，再以目前帳號重新填寫。",
+      );
     if (op.locked)
       throw new Error(
         "方案、訂購或可用操作已變更，請返回最新工作單核對；本次未儲存。",
@@ -767,7 +819,12 @@
     op.frozenPayload = payload;
     const request = op.request || stored?.request_id || crypto.randomUUID();
     op.request = request;
-    retain(op.c, { request_id: request, order_id: op.id, intent: op.intent });
+    retain(op.c, {
+      request_id: request,
+      order_id: op.id,
+      intent: op.intent,
+      actor: op.actor,
+    });
     try {
       const result = await A.api(
         `${path(op.c)}/service-orders${op.id ? "/" + encodeURIComponent(op.id) : ""}${op.endpoint ? "/" + op.endpoint : ""}`,

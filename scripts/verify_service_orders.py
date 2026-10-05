@@ -118,9 +118,24 @@ def main():
                     # Actual booking modification uses the existing confirmation UI.
                     page.evaluate('(c)=>MomApp.openCase(c)',change);page.locator('#sheetBody [data-module=bookings]').click()
                     post(change,f"bookings/{chb['id']}/rebind",evidence(reason='完成改期核對',customer_details='異動後正式內容'))
-                    orders(change);page.locator('#sheetBody [data-action=service-detail]').click();f=form('supplier_result');f.locator('[name=details]').fill('供應商正式異動通知');f.locator(f'[name=result_booking_ids][value="{chb["id"]}"]').check();submit(f);saved()
+                    orders(change);page.locator('#sheetBody [data-action=service-detail]').click();f=form('supplier_result');f.locator('[name=details]').fill('供應商正式異動通知');f.locator(f'[name=result_booking_ids][value="{chb["id"]}"]').check()
+                    before=bundle(change)['service_orders'][0]
+                    post(change,f"bookings/{chb['id']}/rebind",evidence(reason='另一頁更正異動內容',customer_details='尚未在本頁核對的新內容'))
+                    submit(f);expect(f.locator('.form-error')).to_contain_text('訂購已更新');expect(f.locator('[name=details]')).to_have_value('供應商正式異動通知')
+                    check('stale initial result locks form and preserves evidence without committing',f.locator('[name=review_latest]').count()==0 and f.locator('[data-action=service-detail]').count()==1 and bundle(change)['service_orders'][0]['revision']==before['revision'])
+                    f.locator('[data-action=service-detail]').click();f=form('supplier_result');f.locator('[name=details]').fill('新內容已重新核對');f.locator(f'[name=result_booking_ids][value="{chb["id"]}"]').check();submit(f);saved()
+                    permanent=bundle(change)['service_orders'][0]['supplier_result']
+                    post(change,f"bookings/{chb['id']}/void",evidence(reason='已換成新正式訂購'))
+                    replacement=post(change,'bookings',evidence(kind='flight',title='合成替換訂購',supplier='合成航空',confirmation_number=uuid4().hex[:8],customer_details='替換訂購已核對'))
+                    orders(change);page.locator('#sheetBody [data-action=service-detail]').click();f=form('rebind_result');f.locator('[name=details]').fill('替換訂購核對依據');f.locator(f'[name=result_booking_ids][value="{replacement["id"]}"]').check()
+                    before=bundle(change)['service_orders'][0]
+                    replacement=post(change,f"bookings/{replacement['id']}/rebind",evidence(reason='另一頁更正替換訂購',customer_details='替換訂購最新內容'))
+                    submit(f);expect(f.locator('.form-error')).to_contain_text('訂購已更新');expect(f.locator('[name=details]')).to_have_value('替換訂購核對依據')
+                    check('selected replacement change locks rebinding even when original targets unchanged',f.locator('[name=review_latest]').count()==0 and bundle(change)['service_orders'][0]['revision']==before['revision'])
+                    f.locator('[data-action=service-detail]').click();f=form('rebind_result');f.locator('[name=details]').fill('替換訂購最新內容已核對');f.locator(f'[name=result_booking_ids][value="{replacement["id"]}"]').check();submit(f);saved()
+                    check('fresh rebinding succeeds and preserves immutable supplier result',bundle(change)['service_orders'][0]['supplier_result']==permanent and bundle(change)['service_orders'][0]['result_bindings']=={replacement['id']:replacement['revision']})
                     check('change cannot complete before current travel document proof',page.locator('[data-intent=resolve]').is_disabled())
-                    doc=post(change,'documents',{'request_id':str(uuid4()),'kind':'e_ticket','title':'新版機票','required':True,'booking_id':chb['id']})
+                    doc=post(change,'documents',{'request_id':str(uuid4()),'kind':'e_ticket','title':'新版機票','required':True,'booking_id':replacement['id']})
                     r=api.patch(f'/api/mom/cases/{change}/documents/{doc["id"]}',json=evidence(expected_revision=1,status='ready',customer_text='新版正式機票已核對'));assert r.status_code==200,r.text
                     orders(change);page.locator('#sheetBody [data-action=service-detail]').click();resolve();check('change result completed against current booking and document',bundle(change)['service_orders'][0]['status']=='completed')
                     refused,refused_book=seed('供應商拒絕異動合成');create(refused,'change',refused_book);assess(refused);begin();f=form('supplier_result');f.locator('[name=outcome]').select_option('declined');f.locator('[name=details]').fill('供應商正式拒絕改期');submit(f);saved();expect(page.locator('#sheetBody .service-next [data-intent=assess]')).to_be_visible();assess(refused);begin();expect(page.locator('#sheetBody .service-next [data-intent=resolve]')).to_be_visible();resolve();check('supplier refusal routes corrective consent then completion without cancelling booking',bundle(refused)['service_orders'][0]['status']=='supplier_declined' and bundle(refused)['bookings'][0]['status']=='confirmed')

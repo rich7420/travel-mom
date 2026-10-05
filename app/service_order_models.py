@@ -8,6 +8,7 @@ from app.operations_models import Evidence, Money, Moment, PositiveMoney, Text, 
 
 OrderKind = Literal['change', 'cancellation', 'refund', 'incident']
 LedgerKind = Literal['customer_receipt', 'customer_refund', 'supplier_payment', 'supplier_refund']
+BookingRevisions = dict[Annotated[str, Field(min_length=1, max_length=100)], Annotated[int, Field(ge=1, strict=True)]]
 
 
 class ServiceOrderCreate(Evidence):
@@ -89,10 +90,11 @@ class ServiceStart(ServiceOrderCommand):
 
 
 class ServiceSupplierResult(ServiceOrderCommand):
+    """Revisions of original cancellation targets or selected change results."""
     stage: Literal['supplier_result']
     outcome: Literal['confirmed', 'declined']
     details: Annotated[str, Field(min_length=1, max_length=4000)]
-    booking_revisions: dict[str, int] = Field(default_factory=dict, max_length=20)
+    booking_revisions: BookingRevisions = Field(default_factory=dict, max_length=20)
     result_booking_ids: list[Annotated[str, Field(min_length=1,max_length=100)]] = Field(default_factory=list, max_length=20)
 
 
@@ -100,6 +102,7 @@ class ServiceRebindResult(ServiceOrderCommand):
     stage: Literal['rebind_result']
     details: Annotated[str, Field(min_length=1,max_length=4000)]
     result_booking_ids: list[Annotated[str, Field(min_length=1,max_length=100)]] = Field(min_length=1,max_length=20)
+    booking_revisions: BookingRevisions = Field(min_length=1, max_length=20)
 
 
 class ServiceWithdraw(ServiceOrderCommand):
