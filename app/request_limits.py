@@ -1,16 +1,24 @@
 """Bound actual ASGI body bytes before dispatching any request side effects."""
+import re
+
+UPLOAD_ROUTE = re.compile(r"/api/mom/cases/[^/]+/documents/[^/]+/attachments")
+
 from starlette.responses import JSONResponse
 
 
 class RequestBodyLimitMiddleware:
-    def __init__(self, app, limit):
+    def __init__(self, app, limit, upload_limit=None):
         self.app = app
         self.limit = limit
+        self.upload_limit = upload_limit
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
         limit = self.limit()
+        if self.upload_limit and scope["method"] == "POST":
+            if UPLOAD_ROUTE.fullmatch(scope["path"]):
+                limit = self.upload_limit
         lengths = [value for key, value in scope["headers"] if key.lower() == b"content-length"]
         if lengths:
             if len(lengths) != 1 or not lengths[0].isdigit():

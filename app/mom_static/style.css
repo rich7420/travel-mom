@@ -258,3 +258,9 @@ legend { font-weight:650; margin-bottom:8px; }
 /* Keep lifecycle secondary to the five daily work modules. */
 .lifecycle-entry { margin-bottom:16px; }
 .lifecycle-decision { margin-bottom:12px; }
+
+.private-section, .task-summary { margin-block: 1rem; border-top: 1px solid var(--line, #ded8ce); padding-block: .75rem; }
+.private-section > summary, .task-summary > summary { min-height: 44px; font-weight: 700; cursor: pointer; padding: .5rem 0; }
+.file-row { padding: .75rem 0; border-top: 1px solid var(--line, #ded8ce); overflow-wrap: anywhere; }
+
+.private-section .operation-actions button { flex-basis: 160px; }

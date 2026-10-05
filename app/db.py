@@ -266,6 +266,18 @@ def init_db() -> None:
             CREATE TRIGGER IF NOT EXISTS immutable_case_event_delete BEFORE DELETE ON agency_case_events
               BEGIN SELECT RAISE(ABORT,'case lifecycle events are immutable'); END;
 
+            CREATE TABLE IF NOT EXISTS agency_travellers (
+                id TEXT PRIMARY KEY, case_id TEXT NOT NULL REFERENCES trip_cases(id),
+                payload_json TEXT NOT NULL, created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS agency_rosters (
+                id TEXT PRIMARY KEY, case_id TEXT NOT NULL REFERENCES trip_cases(id),
+                payload_json TEXT NOT NULL, created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS agency_attachments (
+                id TEXT PRIMARY KEY, case_id TEXT NOT NULL REFERENCES trip_cases(id),
+                payload_json TEXT NOT NULL, created_at TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS agency_commands (
               case_id TEXT NOT NULL REFERENCES trip_cases(id), request_id TEXT NOT NULL,
               action TEXT NOT NULL, fingerprint TEXT NOT NULL, response_json TEXT NOT NULL, actor TEXT NOT NULL,
@@ -323,6 +335,8 @@ def init_db() -> None:
             "INSERT OR IGNORE INTO schema_migrations(version,name,applied_at) VALUES(?,?,datetime('now'))",
             (804, "Explicit business close/reopen with immutable lifecycle events"),
         )
+        db.execute("INSERT OR IGNORE INTO schema_migrations(version,name,applied_at) VALUES(?,?,datetime('now'))",
+                   (805, "Encrypted traveller roster and private original attachments"))
         db.commit()
 
 

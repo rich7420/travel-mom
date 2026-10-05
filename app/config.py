@@ -46,6 +46,8 @@ class Settings:
     telegram_allowed_chat_ids: tuple[str, ...] = _csv("TELEGRAM_ALLOWED_CHAT_IDS")
 
     pii_fernet_key: str = os.getenv("PII_FERNET_KEY", "")
+    attachments_dir: str = os.getenv("ATTACHMENTS_DIR", "")
+    backup_dir: str = os.getenv("BACKUP_DIR", "")
     browser_allowed_domains: tuple[str, ...] = _csv("BROWSER_ALLOWED_DOMAINS")
     browser_lab_ingest_enabled: bool = _bool("BROWSER_LAB_INGEST_ENABLED", True)
     price_revalidation_max_age_minutes: int = int(os.getenv("PRICE_REVALIDATION_MAX_AGE_MINUTES", "20"))

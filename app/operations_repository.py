@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
+from app.config import settings
 import json
 import sqlite3
 
@@ -17,7 +19,7 @@ class OperationBusy(RuntimeError):
     pass
 
 
-TABLES = {"quotes", "work_items", "bookings", "documents", "ledger", "pretrip", "case_events"}
+TABLES = {"quotes", "work_items", "bookings", "documents", "ledger", "pretrip", "case_events", "travellers", "rosters", "attachments"}
 
 
 def encode(value) -> str:
@@ -67,9 +69,13 @@ def new_record(case_id: str, prefix: str, payload: dict) -> dict:
     return {**payload, "id": new_id(prefix), "case_id": case_id, "created_at": now_iso(), "revision": 1}
 
 
-def command(case_id: str, data, actor: str, action: str, execute) -> dict:
+def command(case_id: str, data, actor: str, action: str, execute, *, private=False) -> dict:
     payload = data.model_dump(mode="json", exclude={"request_id"}, exclude_unset=action.endswith(".patch"))
-    digest = fingerprint({"action": action, "payload": payload, "actor": actor})
+    content = encode({"action": action, "payload": payload, "actor": actor}).encode()
+    if private and not settings.pii_fernet_key:
+        raise ValueError("請由管理員先設定旅客資料加密金鑰")
+    private_key = hmac.new(settings.pii_fernet_key.encode(), b"command-fingerprint-v1", hashlib.sha256).digest() if private else None
+    digest = hmac.new(private_key, content, hashlib.sha256).hexdigest() if private else hashlib.sha256(content).hexdigest()
     try:
         with connect() as db:
             db.execute("BEGIN IMMEDIATE")

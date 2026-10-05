@@ -26,13 +26,15 @@ def validate(db: sqlite3.Connection) -> dict:
     if db.execute('PRAGMA foreign_key_check').fetchone():
         raise ValueError('SQLite foreign key check failed')
     version = db.execute('SELECT MAX(version) FROM schema_migrations').fetchone()[0]
-    if version not in {803, 804}:
-        raise ValueError(f'Unsupported schema version: {version}; expected 803 or 804')
+    if version not in {803, 804, 805}:
+        raise ValueError(f'Unsupported schema version: {version}; expected 803, 804 or 805')
     tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-    required = REQUIRED_TABLES | ({'agency_case_events'} if version == 804 else set())
+    required = REQUIRED_TABLES | ({'agency_case_events'} if version >= 804 else set())
+    if version >= 805:
+        required |= {'agency_travellers', 'agency_rosters', 'agency_attachments'}
     if not required <= tables:
         raise ValueError('Snapshot is missing required application tables')
-    if version == 804:
+    if version >= 804:
         triggers = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name='agency_case_events'")}
         if not {'immutable_case_event_update','immutable_case_event_delete'} <= triggers:
             raise ValueError('Snapshot is missing lifecycle immutability triggers')

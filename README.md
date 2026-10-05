@@ -6,18 +6,19 @@ A **case-based, guided, proactive travel-agency copilot** built for a non-techni
 
 ## Current review and handoff documents
 
-Reviewed on 2026-10-03 against the running v0.8.1 checkout:
+Updated on 2026-10-05 against the running checkout:
 
 - [Developer architecture](docs/DEVELOPER_ARCHITECTURE.md) — English implementation map, data flows, setup, and operational limits.
 - [User guide draft](docs/USER_GUIDE_ZH_TW_DRAFT.md) — Traditional Chinese source for the [in-web guide](http://127.0.0.1:8001/static/guide.html), accessible from Mom Mode and its task dialogs.
 - [Workflow coverage check](docs/WORKFLOW_COVERAGE_ZH_TW.md) — supported daily tasks, operational gaps and concrete next increments.
+- [Private workflow and recovery verification](docs/PRIVATE_WORKFLOW_VERIFICATION.md) — encrypted roster/originals, reminder acknowledgement, atomic handover and scheduled backup evidence.
 - [Current review and improvement direction](docs/REVIEW_AND_DIRECTION_ZH_TW.md) — verified findings, travel-agency workflow gaps, priorities, and acceptance criteria.
 
 The review preview runs at <http://127.0.0.1:8001/> with a separate local database because port 8000 is occupied by another checkout. OpenClaw, LINE, and Telegram are disabled in this preview.
 
 ## Current web workflow increment
 
-OpenClaw is optional. The shared web backend now supports consecutive customer intake, validated case edits with infant/child-age preservation, saved search requirements, manual supplier offers, comparison and persistent selection, and editable/copyable deterministic customer drafts. Expired, demo, changed-case or replaced offers cannot supply active quote amounts. Internal manual supplier/source metadata stays out of drafts. See the current handoff documents for operating limits; schema 803 adds immutable quote versions, deadline/owner tracking, verified booking confirmations, manual currency ledgers, document readiness and pretrip summary handoff. Actual supplier transactions, money transfers, customer messages and original attachments remain manual. See [agency verification](docs/AGENCY_OPERATIONS_VERIFICATION.md).
+OpenClaw is optional. The shared web backend now supports consecutive customer intake, validated case edits with infant/child-age preservation, saved search requirements, manual supplier offers, comparison and persistent selection, and editable/copyable deterministic customer drafts. Expired, demo, changed-case or replaced offers cannot supply active quote amounts. Internal manual supplier/source metadata stays out of drafts. See the current handoff documents for operating limits; schema 803 adds immutable quote versions, deadline/owner tracking, verified booking confirmations, manual currency ledgers, document readiness and pretrip summary handoff. Schema 805 adds encrypted basic traveller records/original uploads, whole-roster checks, reminder acknowledgement and atomic handover. Supplier transactions, money transfers, customer messages and original-file delivery remain manual; encrypted backup scheduling and offline recovery are described in [the runbook](docs/BACKUP_AND_RECOVERY.md). See [agency verification](docs/AGENCY_OPERATIONS_VERIFICATION.md).
 
 ## Interface and tunnel login preparation
 
@@ -193,4 +194,4 @@ Historical results are in [TEST_REPORT_V081.md](docs/TEST_REPORT_V081.md); curre
 
 ## Production boundaries
 
-This is still an **internal POC**, not a production ticketing or booking service. It intentionally does not automate final payment, ticket issuance, refunds/cancellations, CAPTCHA/OTP/3DS, or credit-card handling. Live LINE OA, real OpenClaw Browser sessions, and production database/KMS/RBAC/backup work remain deployment milestones.
+This is still an **internal POC**, not a production ticketing or booking service. It intentionally does not automate final payment, ticket issuance, refunds/cancellations, CAPTCHA/OTP/3DS, or credit-card handling. Live LINE OA, real OpenClaw Browser sessions, and production database/key-custody policies, per-customer access controls and off-site backup/monitoring remain deployment milestones.

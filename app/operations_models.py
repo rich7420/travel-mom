@@ -182,3 +182,56 @@ class SearchAbandon(Evidence):
     reason: Text
     expected_updated_at: Annotated[str, Field(min_length=1, max_length=100)]
     worker_stopped_checked: Literal[True]
+
+
+class TravellerData(Command):
+    name: Annotated[str, Field(min_length=1, max_length=120)]
+    category: Literal["adult", "child", "infant"]
+    date_of_birth: Annotated[str, Field(pattern=r"^\d{4}-\d{2}-\d{2}$")]
+    passport_number: Annotated[str, Field(min_length=1, max_length=40)]
+    passport_expiry: Annotated[str, Field(pattern=r"^\d{4}-\d{2}-\d{2}$")]
+    nationality: Annotated[str, Field(min_length=2, max_length=80)]
+    expected_revision: int | None = Field(default=None, ge=1)
+
+    @field_validator("date_of_birth", "passport_expiry")
+    @classmethod
+    def real_date(cls, value):
+        from datetime import date
+        parsed = date.fromisoformat(value)
+        if value != parsed.isoformat():
+            raise ValueError("請填有效日期")
+        return value
+
+
+class RosterVerify(Evidence):
+    expected_state: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+
+
+class AttachmentUpload(Command):
+    expected_revision: int = Field(ge=1)
+    filename: Annotated[str, Field(min_length=1, max_length=160)]
+    media_type: Literal["application/pdf", "image/jpeg", "image/png"]
+    size: int = Field(gt=0, le=10 * 1024 * 1024)
+    sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+
+
+class AttachmentArchive(Evidence):
+    expected_revision: int = Field(ge=1)
+    reason: Text
+
+
+class WorkAcknowledgement(Evidence):
+    expected_revision: int = Field(ge=1)
+
+
+class WorkHandover(Evidence):
+    items: dict[str, int] = Field(min_length=1, max_length=50)
+    owner: Annotated[str, Field(min_length=1, max_length=100)]
+    reason: Text
+
+    @field_validator("items")
+    @classmethod
+    def revisions(cls, value):
+        if any(not key or revision < 1 for key, revision in value.items()):
+            raise ValueError("請選有效待辦")
+        return value

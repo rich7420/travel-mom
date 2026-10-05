@@ -105,15 +105,19 @@ async function api(path, options = {}) {
   if (state.token) headers.set('x-travel-desk-admin-token', state.token);
   const response = await fetch(path, {...options, headers, redirect:'manual'});
   if (response.type === 'opaqueredirect' || response.status === 0) {
+    window.dispatchEvent(new Event("travel-auth-expired"));
     showLogin(); throw new ReauthenticationError();
   }
+  if (response.ok && options.responseType === "blob") return response.blob();
   const text = await response.text();
   let body = null;
   try { body = text ? JSON.parse(text) : null; } catch { body = text; }
   if (response.status === 401 && (state.auth?.mode === 'cloudflare' || body?.auth_mode === 'cloudflare')) {
+    window.dispatchEvent(new Event("travel-auth-expired"));
     showLogin(); throw new ReauthenticationError();
   }
   if (response.status === 401) {
+    window.dispatchEvent(new Event('travel-auth-expired'));
     $('#tokenDialog').showModal();
     throw new ReauthenticationError();
   }

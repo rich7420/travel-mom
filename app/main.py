@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 
 from fastapi import BackgroundTasks, Body, FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import Response, FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 
@@ -75,7 +75,7 @@ from app.cloudflare_access import AccessVerifier
 from app.request_limits import RequestBodyLimitMiddleware
 
 
-from app.operations_models import QuoteCreate, QuoteDecision, WorkItemCreate, WorkItemPatch, BookingCreate, BookingRebind, VoidRecord, LedgerCreate, DocumentCreate, DocumentPatch, PackCreate, PackDelivery, CaseClose, CaseReopen, SearchAbandon
+from app.operations_models import QuoteCreate, QuoteDecision, WorkItemCreate, WorkItemPatch, BookingCreate, BookingRebind, VoidRecord, LedgerCreate, DocumentCreate, DocumentPatch, PackCreate, PackDelivery, CaseClose, CaseReopen, SearchAbandon, TravellerData, RosterVerify, AttachmentUpload, AttachmentArchive, WorkAcknowledgement, WorkHandover
 from app.operations_repository import OperationConflict, OperationBusy
 from app.services import case_operations as agency
 from app.services.operation_documents import customer_document
@@ -97,7 +97,7 @@ app = FastAPI(title="Mom Travel Desk POC", version="0.8.1", lifespan=lifespan,
               openapi_url=None if is_production() else "/openapi.json")
 
 
-app.add_middleware(RequestBodyLimitMiddleware, limit=lambda: settings.max_request_body_bytes)
+app.add_middleware(RequestBodyLimitMiddleware, limit=lambda: settings.max_request_body_bytes, upload_limit=10 * 1024 * 1024)
 
 
 @app.middleware("http")
@@ -947,3 +947,89 @@ def abandon_hotel_search(run_id: str, data: SearchAbandon, request: Request):
 @app.post("/api/browser/tasks/{task_id}/abandon")
 def abandon_browser_task(task_id: str, data: SearchAbandon, request: Request):
     return agency_call(lambda: agency.abandon_standalone_task(task_id, data, agency_actor(request)))
+
+
+from app.services import travel_files
+
+
+@app.get("/api/mom/cases/{case_id}/travel-files")
+def private_records(case_id: str):
+    return agency_call(lambda: travel_files.list_private(case_id))
+
+
+@app.post("/api/mom/cases/{case_id}/travellers")
+def add_traveller(case_id: str, data: TravellerData, request: Request):
+    return agency_call(lambda: travel_files.traveller_write(case_id, data, agency_actor(request)))
+
+
+@app.patch("/api/mom/cases/{case_id}/travellers/{traveller_id}")
+def update_traveller(case_id: str, traveller_id: str, data: TravellerData, request: Request):
+    return agency_call(lambda: travel_files.traveller_write(case_id, data, agency_actor(request), traveller_id))
+
+
+@app.post("/api/mom/cases/{case_id}/travellers/{traveller_id}/archive")
+def archive_traveller(case_id: str, traveller_id: str, data: AttachmentArchive, request: Request):
+    return agency_call(lambda: travel_files.archive_traveller(case_id, traveller_id, data, agency_actor(request)))
+
+
+@app.get("/api/mom/cases/{case_id}/travellers/{traveller_id}/reveal")
+def reveal_traveller(case_id: str, traveller_id: str, request: Request):
+    return agency_call(lambda: travel_files.reveal_traveller(case_id, traveller_id, agency_actor(request)))
+
+
+@app.post("/api/mom/cases/{case_id}/roster/verify")
+def verify_roster(case_id: str, data: RosterVerify, request: Request):
+    return agency_call(lambda: travel_files.verify_roster(case_id, data, agency_actor(request)))
+
+
+@app.post("/api/mom/cases/{case_id}/documents/{document_id}/attachments")
+async def upload_attachment(case_id: str, document_id: str, request: Request, request_id: str, expected_revision: int):
+    import base64
+    import hashlib
+    content = await request.body()
+    try:
+        filename = base64.b64decode(request.headers.get('x-file-name', ''), validate=True).decode('utf-8')
+        data = AttachmentUpload(request_id=request_id, expected_revision=expected_revision, filename=filename,
+             media_type=request.headers.get('content-type', ''), size=len(content), sha256=hashlib.sha256(content).hexdigest())
+    except (ValueError, UnicodeError):
+        raise HTTPException(400, '請選擇有效的 PDF、JPEG 或 PNG，單檔上限 10 MB')
+    from starlette.concurrency import run_in_threadpool
+    return await run_in_threadpool(agency_call, lambda: travel_files.upload(case_id, document_id, data, content, agency_actor(request)))
+
+
+@app.get("/api/mom/cases/{case_id}/attachment-receipts/{request_id}")
+def upload_receipt(case_id: str, request_id: str, request: Request):
+    from uuid import UUID
+    try:
+        identifier = UUID(request_id)
+    except ValueError:
+        raise HTTPException(400, '無效查詢編號')
+    return agency_call(lambda: travel_files.upload_receipt(case_id, identifier, agency_actor(request)))
+
+
+@app.post("/api/mom/cases/{case_id}/attachments/{attachment_id}/archive")
+def archive_attachment(case_id: str, attachment_id: str, data: AttachmentArchive, request: Request):
+    return agency_call(lambda: travel_files.archive(case_id, attachment_id, data, agency_actor(request)))
+
+
+@app.get("/api/mom/cases/{case_id}/attachments/{attachment_id}/download")
+def download_attachment(case_id: str, attachment_id: str, request: Request):
+    raw, media, name = agency_call(lambda: travel_files.download(case_id, attachment_id, agency_actor(request)))
+    return Response(raw, media_type=media, headers={'Content-Disposition': f'attachment; filename="{name}"',
+        'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': 'sandbox'})
+
+
+@app.post("/api/mom/cases/{case_id}/work-items/{item_id}/acknowledge")
+def acknowledge_work(case_id: str, item_id: str, data: WorkAcknowledgement, request: Request):
+    return agency_call(lambda: agency.acknowledge_work(case_id, item_id, data, agency_actor(request)))
+
+
+@app.post("/api/mom/cases/{case_id}/work-handover")
+def handover_work(case_id: str, data: WorkHandover, request: Request):
+    return agency_call(lambda: agency.handover_work(case_id, data, agency_actor(request)))
+
+
+@app.get("/api/system/backup-status")
+def backup_status():
+    from scripts.backup_bundle import status
+    return status()

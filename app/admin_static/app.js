@@ -865,3 +865,11 @@ async function showReadiness() {
 }
 
 health().then(()=>Promise.all([loadAirlines(), loadHotelNetworks(), loadCases(), loadRadar()])).catch(error=>{if(error instanceof ReauthenticationError)return;document.getElementById('health').textContent=error.message || '暫時無法連線';});
+
+
+async function showBackupStatus() {
+  const b = await api('/api/system/backup-status');
+  const format=value=>value?new Date(value).toLocaleString('zh-TW',{timeZone:'Asia/Taipei'}):'尚無紀錄';
+  const age=b.last_success?Math.max(0,Math.floor((Date.now()-new Date(b.last_success.at).getTime())/3600000)):null;
+  openModal('加密備份狀態', `<p>${b.running?'正在執行備份；尚未確認成功。':'目前沒有備份執行。'}</p><p>加密設定：${b.configured?'已設定':'尚未設定'}</p><p>上次成功：${esc(format(b.last_success?.at))}${age!==null?'（距今 '+age+' 小時）':''}</p>${age!==null&&age>7?'<p>備份已超過排程週期，請檢查排程是否運行。</p>':''}<p>上次失敗：${esc(format(b.last_failure?.at))}</p><p>${esc(b.last_failure?.message||'')}</p><p>${esc(b.maintenance_warning?.message||'')}</p><p>保留最近 ${b.retention} 份成功備份。排程與還原由維運程序管理；失敗不會清除上次成功紀錄。</p><button onclick="showBackupStatus()">重新整理狀態</button>`);
+}

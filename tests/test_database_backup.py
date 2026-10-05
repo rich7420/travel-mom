@@ -25,7 +25,7 @@ def test_backup_reads_committed_wal_and_restore_matches_app_data(client, tmp_pat
         writer.commit()
         backup = tmp_path/'backup.db'
         result = snapshot(source, backup)
-        assert result['schema_version'] == 804 and result['cases'] > 0
+        assert result['schema_version'] == 805 and result['cases'] > 0
         assert backup.stat().st_mode & 0o777 == 0o600
         restored = tmp_path/'restored.db'
         snapshot(backup, restored)
@@ -63,7 +63,7 @@ def test_backup_supports_803_before_upgrade_and_no_overwrite_race(client, tmp_pa
     import scripts.database_backup as module
     source=source_copy(tmp_path)
     with closing(sqlite3.connect(source)) as db:
-        db.execute('DROP TABLE agency_case_events'); db.execute('DELETE FROM schema_migrations WHERE version=804'); db.commit()
+        db.execute('DROP TABLE agency_case_events'); db.execute('DELETE FROM schema_migrations WHERE version>=804'); db.commit()
     assert snapshot(source,tmp_path/'old.db')['schema_version'] == 803
     target=tmp_path/'race.db'; real=module.os.link
     def race(src,dst):

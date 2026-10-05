@@ -13,7 +13,7 @@ from app.repositories import _case_from_row
 from app.services.case_workflow import case_workflow, trip_snapshot
 
 BUSINESS_ZONE = ZoneInfo("Asia/Taipei")
-CASE_TABLES = ("quotes", "work_items", "bookings", "documents", "ledger", "pretrip", "case_events")
+CASE_TABLES = ("quotes", "work_items", "bookings", "documents", "ledger", "pretrip", "case_events", "travellers", "rosters", "attachments")
 
 
 def snapshot(case) -> dict:
@@ -176,6 +176,7 @@ def patch_work_item(case_id: str, item_id: str, data, actor: str) -> dict:
         changes = data.model_dump(mode="json", exclude_unset=True, exclude={"request_id", "expected_revision", "reason"})
         require(all(value is not None for value in changes.values()) and bool(changes), "請填要修改的待辦內容，欄位不可留空")
         item["history"].append({"at": now_iso(), "actor": actor, "reason": data.reason, "before": {k: item[k] for k in changes}, "changes": changes})
+        item.pop("acknowledgement", None)
         item.update(changes)
         item["revision"] += 1
         return save(db, "work_items", item)
@@ -317,10 +318,19 @@ def patch_document(case_id: str, document_id: str, data, actor: str) -> dict:
             booking = validate_document_booking(db, case, effective["booking_id"], doc["kind"])
         if data.status == "ready":
             require(doc["kind"] not in DOCUMENT_BOOKING_KINDS or booking is not None, "電子機票／住宿憑證備妥時，必須關聯對應的有效訂購")
+        from app.services.travel_files import attachment_stamp, roster_state
+        attachment = attachment_stamp(db, case_id, document_id)
+        roster = roster_state(db, case)
+        if data.status == "ready":
+            require(not attachment["used"] or bool(attachment["active"]), "原件已全部封存，請先補上目前有效原件")
+            require(not roster["used"] or roster["current"], "請先核對目前旅客名冊")
+        doc["attachment_state"] = attachment
         # Every ready PATCH is an explicit human check, even a requirement-only correction.
         verification = {"case_snapshot": trip_snapshot(case), "booking_id": effective.get("booking_id"),
                         "booking_revision": booking["revision"] if booking else None,
-                        "quote_id": booking["quote_id"] if booking else None} if data.status == "ready" else None
+                        "quote_id": booking["quote_id"] if booking else None,
+                        "roster_state": roster["expected_state"] if roster["used"] else None,
+                        "attachment_state": attachment["state"]} if data.status == "ready" else None
         doc.setdefault("history", []).append({"before": {**{k: doc.get(k) for k in changes}, "verification": doc.get("verification")}, "actor": actor, "at": now_iso(), "reason": data.reason})
         doc.update(changes, verification=verification)
         doc["revision"] += 1
@@ -328,19 +338,24 @@ def patch_document(case_id: str, document_id: str, data, actor: str) -> dict:
     return command(case_id, data, actor, f"document.{document_id}.patch", execute)
 
 
-def pack_source_from(case, quote: dict | None, bookings: list[dict], documents: list[dict]) -> dict:
+def pack_source_from(case, quote: dict | None, bookings: list[dict], documents: list[dict], roster=None) -> dict:
     # Include voided/old bindings and every revision in the guard; no URL is fetched.
     return {"case_snapshot": snapshot(case), "quote_id": quote["id"] if quote else None,
-            "quote_version": quote["version"] if quote else None, "bookings": bookings, "documents": documents}
+            "quote_version": quote["version"] if quote else None, "bookings": bookings, "documents": documents, "roster": roster or {"used": False}}
 
 
 def pack_source(db, case, quote: dict) -> dict:
-    return pack_source_from(case, quote, rows(db, "bookings", case.id), rows(db, "documents", case.id))
+    from app.services.travel_files import roster_state
+    return pack_source_from(case, quote, rows(db, "bookings", case.id), rows(db, "documents", case.id), roster_state(db, case))
 
 
 def document_current(doc: dict, source: dict) -> bool:
     verification = doc.get("verification")
     if doc["status"] != "ready" or not verification or not trip_matches(verification["case_snapshot"], source["case_snapshot"]):
+        return False
+    if verification.get("roster_state") != (source.get("roster", {}).get("expected_state") if source.get("roster", {}).get("used") else None):
+        return False
+    if doc.get("attachment_state", {}).get("used") and (not doc["attachment_state"]["active"] or verification.get("attachment_state") != doc["attachment_state"]["state"]):
         return False
     booking_id = doc.get("booking_id")
     if doc["kind"] in DOCUMENT_BOOKING_KINDS and not booking_id:
@@ -357,6 +372,8 @@ def document_current(doc: dict, source: dict) -> bool:
 
 def pack_blockers(source: dict, quote: dict) -> list[str]:
     blockers = []
+    if source.get("roster", {}).get("used") and not source["roster"]["current"]:
+        blockers.append("旅客名冊人數不符或需重新核對")
     if not trip_matches(source["case_snapshot"], quote["case_snapshot"]):
         blockers.append("案件需求與客人採用報價不同")
     bookings = [b for b in source["bookings"] if b["status"] == "confirmed" and b["quote_id"] == quote["id"] and trip_matches(b["case_snapshot"], source["case_snapshot"])]
@@ -422,7 +439,8 @@ def case_operations(case_id: str) -> dict:
         quote = next((q for q in bundle["quotes"] if q["status"] == "accepted"), None)
         bundle["accepted_quote_id"] = quote["id"] if quote else None
         bundle["balances"] = balances(quote, bundle["ledger"])
-        source = pack_source_from(case, quote, bundle["bookings"], bundle["documents"])
+        from app.services.travel_files import roster_state
+        source = pack_source_from(case, quote, bundle["bookings"], bundle["documents"], roster_state(db, case))
         bundle["warnings"] = pack_blockers(source, quote) if quote else ["尚未記錄客人採用的報價"]
         # Compute hashes before adding response-only flags to the stored records.
         source_hash = fingerprint(source) if quote else None
@@ -441,6 +459,8 @@ def case_operations(case_id: str) -> dict:
         for pack in bundle["pretrip"]:
             pack["stale"] = not quote or pack["source_hash"] != source_hash or blocked
         bundle.pop("sales_state")
+        for private_table in ("travellers", "rosters", "attachments"):
+            bundle.pop(private_table)
         return {"case": case.model_dump(mode="json"), **bundle}
 
 
@@ -515,7 +535,9 @@ def lifecycle_summary(case, records: dict) -> dict:
     if not quote:
         completed.append("尚未記錄客人採用的報價")
     else:
-        source = pack_source_from(case, quote, records["bookings"], records["documents"])
+        from app.services.travel_files import roster_state_from
+        roster = roster_state_from(case, records.get("travellers", []), records.get("rosters", []))
+        source = pack_source_from(case, quote, records["bookings"], records["documents"], roster)
         completed.extend(pack_blockers(source, quote))
         current_hash = fingerprint(source)
         if not any(p["status"] == "delivered" and p["source_hash"] == current_hash for p in records["pretrip"]):
@@ -622,3 +644,30 @@ def abandon_standalone_task(task_id: str, data, actor: str) -> dict:
                     "reference": data.reference, "occurred_at": data.occurred_at.isoformat(), "worker_stopped_checked": True}), timestamp))
         return {"id": task_id, "case_id": case_id, "status": "failed", "updated_at": timestamp}
     return command(case_id, data, actor, f"task.{task_id}.abandon", execute)
+
+
+def acknowledge_work(case_id, item_id, data, actor):
+    def execute(db, case):
+        item = record(db, "work_items", case_id, item_id)
+        require(item["status"] == "open" and item["revision"] == data.expected_revision, "待辦已變更或不再待處理，請重新核對")
+        item["revision"] += 1
+        item["acknowledgement"] = {"revision": item["revision"], "actor": actor, "reference": data.reference, "occurred_at": data.occurred_at.isoformat()}
+        item["history"].append({"at": now_iso(), "actor": actor, "reason": "已確認看到，不代表已完成", "reference": data.reference})
+        return save(db, "work_items", item)
+    return command(case_id, data, actor, f"work.{item_id}.acknowledge", execute)
+
+
+def handover_work(case_id, data, actor):
+    def execute(db, case):
+        selected = [record(db, "work_items", case_id, item_id) for item_id in data.items]
+        stale = [item["title"] for item in selected if item["status"] != "open" or item["revision"] != data.items[item["id"]]]
+        require(not stale, "以下待辦已變更，全部交接未儲存：" + "、".join(stale))
+        owner = " ".join(data.owner.split())
+        require(bool(owner), "請填新負責人")
+        for item in selected:
+            item["history"].append({"at": now_iso(), "actor": actor, "reason": data.reason, "reference": data.reference, "occurred_at": data.occurred_at.isoformat(), "before": {"owner": item["owner"]}, "changes": {"owner": owner}})
+            item.update(owner=owner, revision=item["revision"] + 1)
+            item.pop("acknowledgement", None)
+            save(db, "work_items", item)
+        return {"count": len(selected), "owner": owner}
+    return command(case_id, data, actor, "work.handover", execute)

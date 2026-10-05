@@ -25,6 +25,8 @@ def main():
     args=parser.parse_args()
     owner='mom-verify-'+uuid4().hex[:12]; token=secrets.token_hex(32)
     containers,volumes,checks=[],[],[]
+    from cryptography.fernet import Fernet
+    encryption_key=Fernet.generate_key().decode()
     def docker(*parts):
         result=subprocess.run(['docker',*parts],text=True,capture_output=True,check=True)
         return result.stdout.strip()
@@ -38,7 +40,7 @@ def main():
     def run(name,vol,command=(),source=None,server=False):
         name=owner+'-'+name
         params=['run','-d','--name',name,'--label','mom.verify.owner='+owner,'--read-only','--tmpfs','/tmp:rw,size=64m',
-                '--cap-drop','ALL','--security-opt','no-new-privileges','-v',vol+':/data']
+                '-e','PII_FERNET_KEY='+encryption_key,'--cap-drop','ALL','--security-opt','no-new-privileges','-v',vol+':/data']
         if source:params+=['-v',source+':/source:ro']
         if server:params+=['-p','127.0.0.1::8000','-e','APP_ENV=production','-e','AUTH_MODE=token',
                           '-e','OPENCLAW_ENABLED=false','-e','TRAVEL_DESK_ADMIN_TOKEN='+token]
@@ -83,6 +85,28 @@ def main():
         check('compose-equivalent hardening active',inspect['Config']['User']=='travel' and inspect['HostConfig']['ReadonlyRootfs'] and inspect['HostConfig']['CapDrop']==['ALL'] and 'no-new-privileges' in inspect['HostConfig']['SecurityOpt'])
         docker('restart',live);base=endpoint(live)
         check('container restart preserves all 101 cases',len(httpx.get(base+'/api/cases',headers={'Authorization':'Bearer '+token}).json())==101)
+        with httpx.Client(base_url=base,headers={'Authorization':'Bearer '+token}) as api:
+            private_path=f"/api/mom/cases/{case['id']}"
+            t=api.post(private_path+'/travellers',json={'request_id':str(uuid4()),'name':'Synthetic encrypted traveller','category':'adult','date_of_birth':'1990-01-01','passport_number':'SYNTHETIC123','passport_expiry':'2030-01-01','nationality':'TW'}).json()
+            check('container encrypted traveller write',bool(t.get('id')))
+            doc=api.post(private_path+'/documents',json={'request_id':str(uuid4()),'kind':'other','title':'Synthetic original','required':False}).json()
+            import base64
+            upload=api.post(private_path+f"/documents/{doc['id']}/attachments",params={'request_id':str(uuid4()),'expected_revision':doc['revision']},content=b'%PDF-1.4 synthetic container original',headers={'content-type':'application/pdf','x-file-name':base64.b64encode(b'synthetic.pdf').decode()})
+            check('container encrypted original write',upload.status_code==200)
+            attachment=upload.json()
+        job=run('bundle-backup',source,('python','-m','scripts.backup_bundle','run'))
+        wait_job(job);bundle_info=json.loads(docker('logs',job))
+        check('encrypted online backup includes originals',bundle_info['attachments']==1)
+        encrypted_restored=volume('encrypted-restored')
+        bundle_source='/source/backups/'+Path(bundle_info['bundle']).name
+        job=run('bundle-restore',encrypted_restored,('python','-m','scripts.backup_bundle','restore','--bundle',bundle_source,'--database','/data/travel_desk.db','--attachments','/data/attachments'),source=source)
+        wait_job(job);check('encrypted restore uses new database and file volume')
+        encrypted_live=run('encrypted-recovered',encrypted_restored,server=True);encrypted_base=endpoint(encrypted_live)
+        with httpx.Client(base_url=encrypted_base,headers={'Authorization':'Bearer '+token}) as recovered_api:
+            reveal=recovered_api.get(private_path+f"/travellers/{t['id']}/reveal")
+            original=recovered_api.get(private_path+f"/attachments/{attachment['id']}/download")
+            check('restored HTTP reveal decrypts passport',reveal.json().get('passport_number')=='SYNTHETIC123')
+            check('restored HTTP download decrypts original',original.content==b'%PDF-1.4 synthetic container original')
         # Online backup from the running service's volume; restore copies it to a NEW file.
         job=run('backup',source,('python','scripts/database_backup.py','backup','/data/travel_desk.db','/data/verified-backup.db'))
         wait_job(job);check('live backup integrity and FK checks pass')
