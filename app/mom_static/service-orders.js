@@ -117,22 +117,39 @@
     if (items.length) sessionStorage.setItem(key(c), JSON.stringify(items));
     else sessionStorage.removeItem(key(c));
   }
+  const actorHeaders = (actor) => ({
+    "X-Travel-Service-Actor": encodeURIComponent(actor),
+  });
+  function assertActor(actor) {
+    if (actor !== A.getActor())
+      throw new Error(
+        "操作帳號已變更，請返回工作單核對上次結果，再以目前帳號重新填寫。",
+      );
+  }
+  async function receipt(c, request, actor) {
+    const result = await A.api(`${path(c)}/service-order-receipts/${request}`, {
+      headers: actorHeaders(actor),
+    });
+    assertActor(actor);
+    return result;
+  }
   async function recover(c) {
+    const actor = A.getActor();
     let committed = 0;
-    for (const item of pending(c)) {
+    // Read-only ownership proof also repairs historical, incorrectly tagged intents.
+    // Foreign uncommitted IDs are never eligible for a mutation.
+    for (const item of storedIntents(c)) {
       try {
-        const result = await A.api(
-          `${path(c)}/service-order-receipts/${item.request_id}`,
-        );
+        const result = await receipt(c, item.request_id, actor);
         if (result.committed) {
           forget(c, item.request_id);
           committed++;
         }
       } catch (err) {
+        assertActor(actor);
         if (err.status !== 409) throw err;
-        // Legacy actor-less metadata cannot be assigned to this login on a 409.
-        // Keep it for the original actor; don't replay it or block case reading.
-        retain(c, { ...item, unavailable_for: A.getActor() });
+        // Only actor-less legacy metadata needs a local ownership marker.
+        if (!item.actor) retain(c, { ...item, unavailable_for: actor });
       }
     }
     return committed;
@@ -786,12 +803,26 @@
             "我已核對最新狀態與上方內容，確認本次紀錄仍適用。",
           ));
   }
+  function uncertain(f, op) {
+    f.dataset.uncertain = "true";
+    if (!f.querySelector("[data-action=service-reconcile]"))
+      f.insertAdjacentHTML(
+        "beforeend",
+        warn(
+          "尚未確認上次儲存結果。填寫內容暫時鎖定，先確認結果，避免將修改後的文字誤認為已保存。",
+        ) + button("確認上次儲存結果", "service-reconcile", op.c, op.id),
+      );
+  }
+  async function recovered(f, op, result) {
+    forget(op.c, op.request);
+    A.showToast(
+      "已確認上次保存成功；接下來顯示上次實際保存的內容，請核對後再修改。",
+    );
+    return saved(f, op, result.order_id, true);
+  }
   async function submit(f) {
     const op = f.serviceOperation;
-    if (op.actor !== A.getActor())
-      throw new Error(
-        "操作帳號已變更，請返回工作單核對上次結果，再以目前帳號重新填寫。",
-      );
+    assertActor(op.actor);
     if (op.locked)
       throw new Error(
         "方案、訂購或可用操作已變更，請返回最新工作單核對；本次未儲存。",
@@ -799,77 +830,81 @@
     const stored = pending(op.c).find(
       (v) => v.order_id === op.id && v.intent === op.intent,
     );
-    if (stored) {
-      const result = await A.api(
-        `${path(op.c)}/service-order-receipts/${stored.request_id}`,
-      );
-      if (result.committed) {
-        forget(op.c, stored.request_id);
-        A.showToast(
-          "已確認上次保存成功；接下來顯示上次實際保存的內容，請核對後再修改。",
-        );
-        return saved(f, op, result.order_id, true);
-      }
-    }
     const v = Object.fromEntries(new FormData(f)),
       payload = op.frozenPayload || {
         ...op.build(v, f),
         ...(op.id ? { expected_revision: op.revision } : {}),
       };
     op.frozenPayload = payload;
+    const checking = !!(op.request || stored);
     const request = op.request || stored?.request_id || crypto.randomUUID();
     op.request = request;
+    if (checking) {
+      try {
+        const result = await receipt(op.c, request, op.actor);
+        if (result.committed) return recovered(f, op, result);
+      } catch (err) {
+        uncertain(f, op);
+        throw err;
+      }
+    }
+    assertActor(op.actor);
     retain(op.c, {
       request_id: request,
       order_id: op.id,
       intent: op.intent,
       actor: op.actor,
     });
+    let result;
     try {
-      const result = await A.api(
+      result = await A.api(
         `${path(op.c)}/service-orders${op.id ? "/" + encodeURIComponent(op.id) : ""}${op.endpoint ? "/" + op.endpoint : ""}`,
         {
           method: op.method,
+          headers: actorHeaders(op.actor),
           body: JSON.stringify({ ...payload, request_id: request }),
         },
       );
-      forget(op.c, request);
-      await saved(f, op, result.id);
+      assertActor(op.actor);
     } catch (err) {
-      if (err.status >= 400 && err.status < 500) {
-        f.dataset.uncertain = "false";
-        op.frozenPayload = null;
-        f.querySelectorAll("input,select,textarea").forEach((el) => {
-          el.disabled = false;
-        });
-        f.querySelector("[data-action=service-reconcile]")?.remove();
-        forget(op.c, request);
-        op.request = null;
-        if (err.status === 409 && op.id) {
-          try {
-            await refreshConflict(f, op);
-          } catch (refreshError) {
-            if (refreshError instanceof A.ReauthenticationError)
-              throw refreshError;
-            $("#serviceConflict").innerHTML = warn(
-              "最新內容暫時無法讀取。原填寫保留，請稍後返回工作單核對。",
-            );
-            op.locked = true;
-          }
-        }
+      // A changed identity is a precondition failure, never a reason to discard.
+      if (!err.status || err.status >= 500 || err.status === 412) {
+        uncertain(f, op);
+        throw err;
       }
-      if (!err.status || err.status >= 500) {
-        f.dataset.uncertain = "true";
-        if (!f.querySelector("[data-action=service-reconcile]"))
-          f.insertAdjacentHTML(
-            "beforeend",
-            warn(
-              "尚未確認上次儲存結果。填寫內容暫時鎖定，先確認結果，避免將修改後的文字誤認為已保存。",
-            ) + button("確認上次儲存結果", "service-reconcile", op.c, op.id),
+      try {
+        // A 4xx can describe a committed UUID with different content. Even create
+        // must reconcile before forgetting; failed receipt reads keep the intent.
+        const found = await receipt(op.c, request, op.actor);
+        if (found.committed) return recovered(f, op, found);
+      } catch (receiptError) {
+        uncertain(f, op);
+        throw receiptError;
+      }
+      f.dataset.uncertain = "false";
+      op.frozenPayload = null;
+      f.querySelectorAll("input,select,textarea").forEach((el) => {
+        el.disabled = false;
+      });
+      f.querySelector("[data-action=service-reconcile]")?.remove();
+      forget(op.c, request);
+      op.request = null;
+      if (err.status === 409 && op.id) {
+        try {
+          await refreshConflict(f, op);
+        } catch (refreshError) {
+          if (refreshError instanceof A.ReauthenticationError)
+            throw refreshError;
+          $("#serviceConflict").innerHTML = warn(
+            "最新內容暫時無法讀取。原填寫保留，請稍後返回工作單核對。",
           );
+          op.locked = true;
+        }
       }
       throw err;
     }
+    forget(op.c, request);
+    await saved(f, op, result.id);
   }
   async function saved(f, op, id, recovered = false) {
     A.markFormCommitted(f, "service-detail", { caseId: op.c, id });
@@ -920,8 +955,7 @@
   window.addEventListener("travel-auth-expired", () => {
     const f = $("#serviceOrderForm");
     if (f?.elements.contact) f.elements.contact.value = "";
-    if (f?.serviceOperation.frozenPayload?.contact)
-      f.serviceOperation.frozenPayload.contact = "";
+    // The sent snapshot stays immutable in memory until receipt reconciliation.
     document
       .querySelectorAll("[data-service-contact]")
       .forEach((el) => el.remove());

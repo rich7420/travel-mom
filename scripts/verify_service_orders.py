@@ -106,7 +106,20 @@ def main():
                     ro=create(refund,'refund');assess(refund,{'customer_refund':'900','final_customer_due':'9100'});begin();result()
                     f=form('settle');f.locator('[name=kind]').select_option('customer_refund');f.locator('[name=amount]').fill('901');submit(f);expect(f.locator('.form-error')).to_contain_text('超過');expect(f.locator('[name=amount]')).to_have_value('901');check('over-refund error preserves input and focuses alert',f.locator('.form-error').evaluate('(e)=>e===document.activeElement'))
                     # Conflict refresh deliberately requires the user's explicit review.
-                    f.locator('[name=review_latest]').check();f.locator('[name=amount]').fill('400');submit(f);saved()
+                    f.locator('[name=review_latest]').check();f.locator('[name=amount]').fill('400')
+                    cash_id=str(uuid4());receipt_reads=[0]
+                    page.evaluate('([c,id,order])=>sessionStorage.setItem("travel-service-intents:"+c,JSON.stringify([{request_id:id,order_id:order,intent:"settle",actor:"operator"}]))',[refund,cash_id,ro['id']])
+                    def cash_commits_after_receipt(route):
+                        response=route.fetch();receipt_reads[0]+=1
+                        if receipt_reads[0]==1:
+                            assert response.json()=={'committed':False}
+                            current=bundle(refund)['service_orders'][0]
+                            post(refund,f"service-orders/{ro['id']}/settlement",evidence(request_id=cash_id,expected_revision=current['revision'],kind='customer_refund',amount='400',currency='TWD',reference='另一頁原始收付憑據'))
+                        route.fulfill(response=response)
+                    page.route('**/service-order-receipts/'+cash_id,cash_commits_after_receipt)
+                    submit(f);saved();page.unroute('**/service-order-receipts/'+cash_id)
+                    check('settlement fingerprint race reconciles original receipt with one cash record',receipt_reads[0]>=2 and len([e for e in bundle(refund)['ledger'] if e.get('service_order_id')])==1)
+
                     f=form('settle');f.locator('[name=kind]').select_option('customer_refund');f.locator('[name=amount]').fill('500');f.locator('[name=reference]').fill('合成遺失回應');f.locator('[name=checked]').check()
                     page.evaluate("""()=>{window.originalFetch=fetch;window.cashCalls=0;window.fetch=async(url,opts)=>{if(String(url).endsWith('/settlement')){cashCalls++;const r=await originalFetch(url,opts);if(cashCalls===1)throw new TypeError('synthetic response lost');return r;}return originalFetch(url,opts);};}""")
                     f.locator('button[type=submit]').click();expect(f.locator('.form-error')).to_be_visible()
@@ -147,7 +160,14 @@ def main():
                     f.locator('[name=review_latest]').check();submit(f);saved();check('explicit review retries planning against latest revision',bundle(refund)['service_orders'][0]['owner']=='尚未儲存負責人')
                     # Session loss only removes the dedicated unsaved contact field.
                     f=form('edit');f.locator('[name=contact]').fill('尚未存聯絡資料');f.locator('[name=reason]').fill('保留的處理原因');f.locator('[name=reference]').fill('保留的核對依據');page.evaluate("()=>window.dispatchEvent(new Event('travel-auth-expired'))");expect(f.locator('[name=contact]')).to_have_value('');expect(f.locator('[name=reason]')).to_have_value('保留的處理原因');expect(f.locator('[name=reference]')).to_have_value('保留的核對依據');check('auth expiry clears contact and retains noncontact draft')
-                    page.locator('#sheetBack').click()
+                    f.locator('[name=contact]').fill('已送出等待核對窗口')
+                    page.evaluate("""()=>{window.originalFetch=fetch;window.editCalls=0;window.fetch=async(url,opts)=>{const r=await originalFetch(url,opts);if(opts?.method==='PATCH'&&String(url).includes('/service-orders/')){editCalls++;throw new TypeError('synthetic committed edit response lost');}return r;};}""")
+                    submit(f);expect(f.locator('[data-action=service-reconcile]')).to_be_visible()
+                    page.evaluate("()=>window.dispatchEvent(new Event('travel-auth-expired'))")
+                    check('expiry redacts visible contact without changing sent frozen snapshot',f.locator('[name=contact]').input_value()=='' and f.evaluate('(el)=>el.serviceOperation.frozenPayload.contact')=='已送出等待核對窗口')
+                    f.locator('[data-action=service-reconcile]').click();saved()
+                    check('redacted contact request reconciles saved original without second mutation',page.evaluate('()=>editCalls')==1 and bundle(refund)['service_orders'][0]['contact']=='已送出等待核對窗口');page.evaluate('()=>window.fetch=originalFetch')
+
                     # Lost response + reload recovery for note, no payload retained in storage.
                     f=form('note');f.locator('[name=message]').fill('合成重載紀錄');f.locator('[name=reference]').fill('合成重載依據');f.locator('[name=checked]').check()
                     page.evaluate("""()=>{window.originalFetch=fetch;window.fetch=async(url,opts)=>{const r=await originalFetch(url,opts);if(String(url).endsWith('/progress'))throw new TypeError('synthetic reload lost');return r;};}""");f.locator('button[type=submit]').click();expect(f.locator('.form-error')).to_be_visible();before=len(bundle(refund)['service_orders'][0]['history']);page.reload();page.wait_for_function('()=>state.preferences!==null');orders(refund);check('reload reconciles pending receipt without duplicate history',len(bundle(refund)['service_orders'][0]['history'])==before and page.evaluate(f"()=>sessionStorage.getItem('travel-service-intents:{refund}')") is None)

@@ -3,7 +3,9 @@ from __future__ import annotations
 from uuid import UUID
 from contextlib import asynccontextmanager
 import logging
+import re
 from pathlib import Path
+from urllib.parse import unquote
 
 from fastapi import BackgroundTasks, Body, FastAPI, HTTPException, Request
 from fastapi.responses import Response, FileResponse, HTMLResponse, JSONResponse
@@ -728,6 +730,22 @@ def agency_actor(request: Request) -> str:
     return identity.email if identity else "operator"
 
 
+def service_actor(request: Request) -> str:
+    """Bind a web form to the authenticated actor, without granting permissions."""
+    actor = agency_actor(request)
+    expected = request.headers.get('x-travel-service-actor')
+    if expected is not None:
+        try:
+            if re.search(r'%(?![0-9a-fA-F]{2})', expected):
+                raise ValueError('Malformed actor encoding')
+            expected = unquote(expected, errors='strict').strip().casefold()
+        except (ValueError, UnicodeError):
+            raise HTTPException(400, '操作帳號編碼無效') from None
+        if expected != actor:
+            raise HTTPException(412, '操作帳號已變更，請返回工作單核對上次結果，再重新填寫。')
+    return actor
+
+
 @app.get("/api/mom/work-items")
 def agency_work_items():
     return {"items": agency.list_work_items(), "timezone": "Asia/Taipei"}
@@ -1041,44 +1059,44 @@ def backup_status():
 
 @app.post('/api/mom/cases/{case_id}/service-orders')
 def service_order_create(case_id: str, data: ServiceOrderCreate, request: Request):
-    return agency_call(lambda: service_orders.create(case_id, data, agency_actor(request)))
+    return agency_call(lambda: service_orders.create(case_id, data, service_actor(request)))
 
 
 @app.patch('/api/mom/cases/{case_id}/service-orders/{order_id}')
 def service_order_patch(case_id: str, order_id: str, data: ServiceOrderPatch, request: Request):
-    return agency_call(lambda: service_orders.patch(case_id, order_id, data, agency_actor(request)))
+    return agency_call(lambda: service_orders.patch(case_id, order_id, data, service_actor(request)))
 
 
 @app.post('/api/mom/cases/{case_id}/service-orders/{order_id}/assessment')
 def service_order_assess(case_id: str, order_id: str, data: ServiceAssessment, request: Request):
-    return agency_call(lambda: service_orders.assess(case_id, order_id, data, agency_actor(request)))
+    return agency_call(lambda: service_orders.assess(case_id, order_id, data, service_actor(request)))
 
 
 @app.post('/api/mom/cases/{case_id}/service-orders/{order_id}/decision')
 def service_order_decide(case_id: str, order_id: str, data: ServiceDecision, request: Request):
-    return agency_call(lambda: service_orders.decide(case_id, order_id, data, agency_actor(request)))
+    return agency_call(lambda: service_orders.decide(case_id, order_id, data, service_actor(request)))
 
 
 @app.post('/api/mom/cases/{case_id}/service-orders/{order_id}/progress')
 def service_order_progress(case_id: str, order_id: str, data: ServiceProgress, request: Request):
-    return agency_call(lambda: service_orders.progress(case_id, order_id, data, agency_actor(request)))
+    return agency_call(lambda: service_orders.progress(case_id, order_id, data, service_actor(request)))
 
 
 @app.post('/api/mom/cases/{case_id}/service-orders/{order_id}/settlement')
 def service_order_settle(case_id: str, order_id: str, data: ServiceSettlement, request: Request):
-    return agency_call(lambda: service_orders.settle(case_id, order_id, data, agency_actor(request)))
+    return agency_call(lambda: service_orders.settle(case_id, order_id, data, service_actor(request)))
 
 
 @app.post('/api/mom/cases/{case_id}/service-orders/{order_id}/resolve')
 def service_order_resolve(case_id: str, order_id: str, data: ServiceResolve, request: Request):
-    return agency_call(lambda: service_orders.resolve(case_id, order_id, data, agency_actor(request)))
+    return agency_call(lambda: service_orders.resolve(case_id, order_id, data, service_actor(request)))
 
 
 @app.post('/api/mom/cases/{case_id}/service-orders/{order_id}/reopen')
 def service_order_reopen(case_id: str, order_id: str, data: ServiceReopen, request: Request):
-    return agency_call(lambda: service_orders.reopen(case_id, order_id, data, agency_actor(request)))
+    return agency_call(lambda: service_orders.reopen(case_id, order_id, data, service_actor(request)))
 
 
 @app.get('/api/mom/cases/{case_id}/service-order-receipts/{request_id}')
 def service_order_receipt(case_id: str, request_id: UUID, request: Request):
-    return agency_call(lambda: service_orders.receipt(case_id, request_id, agency_actor(request)))
+    return agency_call(lambda: service_orders.receipt(case_id, request_id, service_actor(request)))

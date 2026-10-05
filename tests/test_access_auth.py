@@ -350,3 +350,99 @@ def test_service_order_exact_routes_origin_identity_and_receipts(access_client, 
     state=access_client.get(base+'/operations',headers=mom).json()['lifecycle']['expected_state']
     closed=access_client.post(base+'/lifecycle/close',headers=mom,json={**{k:v for k,v in payload.items() if k in {'reference','occurred_at','checked'}},'request_id':str(uuid4()),'expected_state':state,'reason':'服務已完成','outcome':'completed','supplier_settlement_checked':True})
     assert closed.status_code==200,closed.text
+
+
+@pytest.mark.parametrize('method,suffix,fields', [
+    ('POST', '/service-orders', {'kind':'incident','title':'身分綁定','request_details':'需求','owner':'媽媽','due_at':'2030-01-01T00:00:00Z'}),
+    ('PATCH', '/service-orders/missing', {'expected_revision':1,'owner':'媽媽','due_at':'2030-01-01T00:00:00Z','urgency':'normal','reason':'核對'}),
+    ('POST', '/service-orders/missing/assessment', {'expected_revision':1,'supplier_reply':'回覆','proposal':'方案','terms_reference':'依據','valid_until':'2030-01-01T00:00:00Z','reason':'核對'}),
+    ('POST', '/service-orders/missing/decision', {'expected_revision':1,'assessment_revision':1,'decision':'approved','customer_reply':'採用'}),
+    ('POST', '/service-orders/missing/progress', {'expected_revision':1,'stage':'note','message':'聯絡'}),
+    ('POST', '/service-orders/missing/settlement', {'expected_revision':1,'kind':'customer_receipt','amount':'10','currency':'TWD'}),
+    ('POST', '/service-orders/missing/resolve', {'expected_revision':1,'summary':'處理完成','customer_notified_checked':True}),
+    ('POST', '/service-orders/missing/reopen', {'expected_revision':1,'reason':'再核對'}),
+])
+def test_service_mutations_bind_form_actor_before_command(access_client, signing_keys, method, suffix, fields):
+    from uuid import uuid4
+    from app.db import connect
+    signed=headers(signing_keys[0], email='admin@example.com')
+    case=access_client.post('/api/cases',headers=signed,json={'customer_name':'切換身分拒絕合成'}).json()
+    base=f"/api/mom/cases/{case['id']}"
+    payload={'request_id':str(uuid4()),'reference':'核對','occurred_at':datetime.now(timezone.utc).isoformat(),'checked':True,**fields}
+    if '/missing' in suffix:
+        order=access_client.post(base+'/service-orders',headers=signed,json={
+            'request_id':str(uuid4()),'reference':'核對','occurred_at':datetime.now(timezone.utc).isoformat(),'checked':True,
+            'kind':'incident','title':'真實可修改工作單','request_details':'需求','owner':'媽媽','due_at':'2030-01-01T00:00:00Z'}).json()
+        suffix=suffix.replace('/missing','/'+order['id'])
+    snapshot=access_client.get(base+'/operations',headers=signed).json()
+    with connect() as db:
+        before={table:db.execute(f'SELECT COUNT(*) FROM {table} WHERE case_id=?',(case['id'],)).fetchone()[0]
+                for table in ('agency_commands','agency_service_orders','agency_ledger','audit_log')}
+    response=access_client.request(method,base+suffix,json=payload,headers={**signed,'X-Travel-Service-Actor':'mom%40example.com'})
+    assert response.status_code==412,response.text
+    with connect() as db:
+        assert before=={table:db.execute(f'SELECT COUNT(*) FROM {table} WHERE case_id=?',(case['id'],)).fetchone()[0] for table in before}
+    assert access_client.get(base+'/service-order-receipts/'+payload['request_id'],headers=signed).json()=={'committed':False}
+    assert access_client.get(base+'/operations',headers=signed).json()==snapshot
+
+
+def test_service_actor_header_encoding_and_idempotent_conflict(access_client, signing_keys):
+    from urllib.parse import quote
+    from uuid import uuid4
+    mom=headers(signing_keys[0])
+    case=access_client.post('/api/cases',headers=mom,json={'customer_name':'身分編碼合成'}).json()
+    base=f"/api/mom/cases/{case['id']}"
+    payload={'request_id':str(uuid4()),'reference':'核對','occurred_at':datetime.now(timezone.utc).isoformat(),'checked':True,
+             'kind':'incident','title':'原始需求','request_details':'需求','owner':'媽媽','due_at':'2030-01-01T00:00:00Z'}
+    for invalid in ('%', '%GG', '%FF', ''):
+        r=access_client.post(base+'/service-orders',json=payload,headers={**mom,'X-Travel-Service-Actor':invalid})
+        assert r.status_code==(412 if invalid=='' else 400),r.text
+    actor=quote(' MOM@EXAMPLE.COM ')
+    r=access_client.post(base+'/service-orders',json=payload,headers={**mom,'X-Travel-Service-Actor':actor})
+    assert r.status_code==200,r.text
+    assert access_client.post(base+'/service-orders',json=payload,headers=mom).json()==r.json()
+    assert access_client.post(base+'/service-orders',json={**payload,'title':'更改文字'},headers=mom).status_code==409
+    assert access_client.get(base+'/service-order-receipts/'+payload['request_id'],headers=mom).json()=={'committed':True,'order_id':r.json()['id']}
+    wrong={**mom,'X-Travel-Service-Actor':'admin%40example.com'}
+    assert access_client.get(base+'/service-order-receipts/'+payload['request_id'],headers=wrong).status_code==412
+    assert len(access_client.get(base+'/operations',headers=mom).json()['service_orders'])==1
+    # Match AccessVerifier's Unicode normalization, not just ASCII lowercasing.
+    app.state.access_verifier.operators.add('strasse@example.com')
+    unicode_actor=headers(signing_keys[0],email='Straße@example.com')
+    response=access_client.post(base+'/service-orders',json={**payload,'request_id':str(uuid4())},
+                               headers={**unicode_actor,'X-Travel-Service-Actor':quote('STRAẞE@EXAMPLE.COM')})
+    assert response.status_code==200,response.text
+    assert response.json()['history'][0]['actor']=='strasse@example.com'
+
+
+def test_ready_settlement_wrong_actor_guard_writes_nothing_then_owner_succeeds(access_client, signing_keys):
+    from app.db import connect
+    from uuid import uuid4
+    signed=headers(signing_keys[0])
+    case=access_client.post('/api/cases',headers=signed,json={'customer_name':'可收款身分綁定合成'}).json()
+    base=f"/api/mom/cases/{case['id']}"
+    def proof(**extra):
+        return {'request_id':str(uuid4()),'reference':'已核對','occurred_at':datetime.now(timezone.utc).isoformat(),'checked':True,**extra}
+    def post(suffix, payload):
+        response=access_client.post(base+suffix,headers=signed,json=payload)
+        assert response.status_code==200,response.text
+        return response.json()
+    order=post('/service-orders',proof(kind='incident',title='可收款工作單',request_details='需求',owner='媽媽',due_at='2030-01-01T00:00:00Z'))
+    order_path='/service-orders/'+order['id']
+    order=post(order_path+'/assessment',proof(expected_revision=order['revision'],supplier_reply='回覆',proposal='方案',terms_reference='依據',valid_until='2030-01-01T00:00:00Z',reason='核對',amounts=[{'currency':'TWD','customer_receipt':'10','final_customer_due':'10'}]))
+    order=post(order_path+'/decision',proof(expected_revision=order['revision'],assessment_revision=order['assessment']['revision'],decision='approved',customer_reply='採用'))
+    order=post(order_path+'/progress',proof(expected_revision=order['revision'],stage='start'))
+    order=post(order_path+'/progress',proof(expected_revision=order['revision'],stage='supplier_result',outcome='confirmed',details='正式完成通知'))
+    payload=proof(expected_revision=order['revision'],kind='customer_receipt',amount='10',currency='TWD')
+    with connect() as db:
+        before={table:db.execute(f'SELECT COUNT(*) FROM {table} WHERE case_id=?',(case['id'],)).fetchone()[0]
+                for table in ('agency_commands','agency_service_orders','agency_ledger','audit_log')}
+    before_order=access_client.get(base+'/operations',headers=signed).json()['service_orders'][0]
+    rejected=access_client.post(base+order_path+'/settlement',headers={**signed,'X-Travel-Service-Actor':'admin%40example.com'},json=payload)
+    assert rejected.status_code==412,rejected.text
+    with connect() as db:
+        assert before=={table:db.execute(f'SELECT COUNT(*) FROM {table} WHERE case_id=?',(case['id'],)).fetchone()[0] for table in before}
+    assert access_client.get(base+'/operations',headers=signed).json()['service_orders'][0]==before_order
+    recorded=post(order_path+'/settlement',payload)
+    assert recorded['revision']==order['revision']+1
+    assert len(access_client.get(base+'/operations',headers=signed).json()['ledger'])==1

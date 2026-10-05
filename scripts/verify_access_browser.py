@@ -317,6 +317,112 @@ def main():
                         history_before=api.get(path+'/operations').json()['service_orders'][0]['history']
                         form.locator('button[type=submit]').click();expect(form.locator('.form-error')).to_contain_text('操作帳號已變更')
                         check('account change during form blocks submission and preserves typed content',form.locator('[name=message]').input_value()=='原登入填寫的內容' and api.get(path+'/operations').json()['service_orders'][0]['history']==history_before)
+                        # Actor changes at asynchronous boundaries must never move a form
+                        # to another login. The JWT/header checks below are real app checks.
+                        context.set_extra_http_headers(headers(mom_token));page.evaluate('()=>loadSession()')
+                        def store_intent(request, order_id='', intent='create', actor=MOM, **extra):
+                            page.evaluate('([id,item])=>sessionStorage.setItem("travel-service-intents:"+id,JSON.stringify([item]))',
+                                          [c,{'request_id':request,'order_id':order_id,'intent':intent,'actor':actor,**extra}])
+                        def saved_orders():
+                            return api.get(path+'/operations').json()['service_orders']
+                        def create_payload(request, title):
+                            now=datetime.now(timezone.utc)
+                            return {'request_id':request,'reference':'合成競爭提交','occurred_at':now.isoformat(),'checked':True,
+                                    'kind':'incident','title':title,'request_details':'合成需求原文','owner':'媽媽',
+                                    'due_at':(now+timedelta(hours=1)).isoformat()}
+                        def fresh_create(title):
+                            service_orders();f=service_form('create');f.locator('[name=title]').fill(title)
+                            f.locator('[name=request_details]').fill('合成需求重新填寫');service_proof(f)
+                            return f
+                        pending_id=str(uuid4());store_intent(pending_id,order['id'],'note')
+                        def switch_during_receipt(route):
+                            response=route.fetch();assert response.json()=={'committed':False}
+                            context.set_extra_http_headers(headers(admin_token));page.evaluate('()=>loadSession()')
+                            route.fulfill(response=response)
+                        page.route('**/service-order-receipts/'+pending_id,switch_during_receipt)
+                        form.locator('button[type=submit]').click();expect(form.locator('.form-error')).to_contain_text('操作帳號已變更')
+                        page.unroute('**/service-order-receipts/'+pending_id)
+                        check('switch during awaited receipt blocks POST and retains original UUID',
+                              saved_orders()[0]['history']==history_before and
+                              page.evaluate('(id)=>JSON.parse(sessionStorage.getItem("travel-service-intents:"+id))[0].request_id',c)==pending_id)
+                        context.set_extra_http_headers(headers(mom_token));page.reload()
+                        page.wait_for_function('(email)=>state.auth?.email===email&&state.preferences!==null',arg=MOM)
+                        service_orders();page.locator(f'#sheetBody [data-action=service-detail][data-id="{order["id"]}"]').click()
+                        form=service_form('note');form.locator('[name=message]').fill('最後一刻換帳號');service_proof(form)
+                        def switch_at_post(route):
+                            # Override the actual signed request after the client has checked
+                            # its actor; leave client state unchanged to exercise server guard.
+                            response=route.fetch(headers={**route.request.headers,**headers(admin_token)})
+                            assert response.status==412,response.text()
+                            route.fulfill(response=response)
+                        page.route('**/service-orders/*/progress',switch_at_post)
+                        form.locator('button[type=submit]').click();expect(form.locator('[data-action=service-reconcile]')).to_be_visible()
+                        kept=page.evaluate('(id)=>JSON.parse(sessionStorage.getItem("travel-service-intents:"+id))',c)
+                        check('server actor precondition rejects last-moment account switch without writes or discarding UUID',
+                              saved_orders()[0]['history']==history_before and kept[0]['request_id']==pending_id)
+                        page.unroute('**/service-orders/*/progress')
+                        form.locator('[data-action=service-reconcile]').click();expect(page.locator('#serviceOrderForm')).to_have_count(0)
+                        check('original actor can safely continue the rejected form exactly once',
+                              len(saved_orders()[0]['history'])==len(history_before)+1 and saved_orders()[0]['history'][-1]['actor']==MOM)
+                        # Repair an actual historical swapped-actor commit, including the
+                        # old unavailable_for stamp, without making any new mutation.
+                        historical_id=str(uuid4());historical=api.post(path+'/service-orders',json=create_payload(historical_id,'舊版錯標身分'),headers=headers(admin_token))
+                        assert historical.status_code==200,historical.text
+                        store_intent(historical_id,actor=MOM)
+                        count=len(saved_orders());service_orders()
+                        check('tagged foreign receipt stays stored and list readable for original form actor',
+                              page.evaluate('(id)=>JSON.parse(sessionStorage.getItem("travel-service-intents:"+id))[0].request_id',c)==historical_id and
+                              page.locator('#sheetBody [data-action=service-detail]').count()==count)
+                        check('tagged receipt conflict is not quarantined for its recorded actor',
+                              page.evaluate('(id)=>!("unavailable_for" in JSON.parse(sessionStorage.getItem("travel-service-intents:"+id))[0])',c))
+                        form=service_form('create');form.locator('[name=title]').fill('待確認不可重送');form.locator('[name=request_details]').fill('合成舊紀錄');service_proof(form)
+                        form.locator('button[type=submit]').click();expect(form.locator('[data-action=service-reconcile]')).to_be_visible()
+                        check('tagged foreign receipt in form preserves UUID and blocks replay',len(saved_orders())==count and
+                              page.evaluate('(id)=>JSON.parse(sessionStorage.getItem("travel-service-intents:"+id))[0].request_id',c)==historical_id)
+                        store_intent(historical_id,actor=MOM,unavailable_for=MOM)
+                        context.set_extra_http_headers(headers(admin_token));page.reload()
+                        page.wait_for_function('(email)=>state.auth?.email===email&&state.preferences!==null',arg=ADMIN)
+                        service_orders()
+                        check('actual saved actor recovers historically mislabeled and quarantined intent without replay',
+                              page.evaluate('(id)=>sessionStorage.getItem("travel-service-intents:"+id)===null',c) and len(saved_orders())==count)
+                        context.set_extra_http_headers(headers(mom_token));page.reload()
+                        page.wait_for_function('(email)=>state.auth?.email===email&&state.preferences!==null',arg=MOM)
+                        form=fresh_create('第二次重新填寫');shared_id=str(uuid4());store_intent(shared_id)
+                        count=len(saved_orders());reads=[0]
+                        def commit_between_receipt_and_post(route):
+                            response=route.fetch();reads[0]+=1
+                            if reads[0]==1:
+                                assert response.json()=={'committed':False}
+                                first=api.post(path+'/service-orders',json=create_payload(shared_id,'原始提交已保存'))
+                                assert first.status_code==200,first.text
+                            route.fulfill(response=response)
+                        page.route('**/service-order-receipts/'+shared_id,commit_between_receipt_and_post)
+                        form.locator('button[type=submit]').click();expect(page.locator('#serviceOrderForm')).to_have_count(0)
+                        page.unroute('**/service-order-receipts/'+shared_id)
+                        expect(page.locator('#sheetBody')).to_contain_text('原始提交已保存')
+                        check('create fingerprint conflict reconciles committed UUID and actual saved content without duplicate',
+                              reads[0]>=2 and len(saved_orders())==count+1 and
+                              page.evaluate('(id)=>sessionStorage.getItem("travel-service-intents:"+id)===null',c))
+                        # The same conflict with a failed reconciliation must preserve the
+                        # UUID and immutable body until confirmation works again.
+                        form=fresh_create('回執中斷待核對');shared_id=str(uuid4());store_intent(shared_id)
+                        count=len(saved_orders());reads=[0]
+                        def commit_then_receipt_outage(route):
+                            reads[0]+=1
+                            if reads[0]==1:
+                                response=route.fetch();assert response.json()=={'committed':False}
+                                first=api.post(path+'/service-orders',json=create_payload(shared_id,'回執中斷原始保存'))
+                                assert first.status_code==200,first.text
+                                route.fulfill(response=response)
+                            else:route.fulfill(status=503,content_type='application/json',body='{"detail":"synthetic receipt outage"}')
+                        page.route('**/service-order-receipts/'+shared_id,commit_then_receipt_outage)
+                        form.locator('button[type=submit]').click();expect(form.locator('[data-action=service-reconcile]')).to_be_visible()
+                        check('failed conflict receipt keeps UUID and freezes original body',
+                              page.evaluate('(id)=>JSON.parse(sessionStorage.getItem("travel-service-intents:"+id))[0].request_id',c)==shared_id and
+                              form.locator('[name=title]').is_disabled() and len(saved_orders())==count+1)
+                        page.unroute('**/service-order-receipts/'+shared_id)
+                        form.locator('[data-action=service-reconcile]').click();expect(page.locator('#serviceOrderForm')).to_have_count(0)
+                        check('later confirmation after receipt outage finds existing order without duplicate',len(saved_orders())==count+1)
                         admin_context = browser.new_context(ignore_https_errors=True, extra_http_headers=headers(admin_token))
                         admin = admin_context.new_page()
                         admin.on('pageerror', lambda e: errors.append(str(e)))
