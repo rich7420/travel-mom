@@ -92,3 +92,32 @@ Review: **Claude Code backend APPROVE**, High because this binds authenticated i
 Evidence stays ignored under `data/retry-completion/`: final test logs, per-engine reports/screenshots under `final/`, source summary/image hashes, container build/recovery report, reviewer JSON, negative-control output, and live table inventories. The live desk was restarted at `http://127.0.0.1:8001/` with **42 cases and zero seeded service orders**; every table's row count/hash matched before and after, with no schema change. Its local backup configuration and six-hour schedule remain in place.
 
 Remaining deployment acceptance needs actual external configuration: Cloudflare hostname/Tunnel/Access/IdP/MFA/cookies/logout and off-network validation; offsite backup credentials/key custody/failure notifications; Mom's physical iPhone/Android and real-case usability. Per-traveller ticket/special-service bindings, external reminders, full CRM/history and specialist multi-segment/group/visa/insurance workflows remain product roadmap work, not features completed by this retry correction. OpenClaw is optional and is not required for these verified web workflows.
+
+
+## E2E effectiveness recheck (2026-10-06)
+
+The application at **740cb71** was reverified without changing any production source or existing runner. All four suites pass again in Chromium, Firefox and WebKit: **42 service orders + 42 signed auth + 62 workspace + 44 private files = 190 per engine, 570 total**, with no browser JavaScript errors. An external before/after hash inventory also covers the workspace runner, which does not embed a manifest. All 84 pre-existing application/script files remain byte-for-byte unchanged; the live desk remains **42 cases, zero service orders**, with every table's row count/hash unchanged. Desktop/mobile browser layout checks pass; real phone and assistive-technology acceptance remain separate.
+
+New **`scripts/verify_service_regressions.py`** makes defect sensitivity repeatable. For each engine, it first runs fresh, unmodified signed-auth and service-order baselines in disposable copies, then applies four independent frontend mutations in separate copies:
+
+| Control | Reintroduced behavior | Required failure |
+| --- | --- | --- |
+| `actor-await` | Keep the initial form check but remove post-await/pre-write/post-write checks and the mutation's expected-actor header | The account-change form expectation immediately after the awaited receipt |
+| `owner-recovery` | Scan only locally actor-matching intents | The actual saving actor cannot reconcile a historical mismarked/quarantined intent |
+| `conflict-discard` | Forget a UUID on mutation 409 before reading its receipt | The create-conflict expectation cannot reach the saved original order |
+| `contact-snapshot` | Authentication expiry rewrites contact inside the frozen submitted body | The immutable snapshot assertion fails |
+
+All **four controls are detected independently on all three engines (12 expected failures)**. These expected failures are sensitivity evidence, not passing functional tests. The additional unmodified baselines repeat existing coverage rather than adding new feature checks. The existing `verify_access_regressions.py` also detects its **two Origin/JWKS controls**. Arbitrary failures do not count: the new harness requires exit 1, the exact copied runner pathname and dynamically located main traceback frame, plus the intended AssertionError diagnostic. This avoids matching an earlier same-worded expectation or an unreachable named check. Mutation snippets must match exactly once; changed targets fail the harness explicitly.
+
+Each runner owns a new process group. Timeout is a harness failure, never a detected defect; finally cleanup terminates the group and force-stops any remaining children before deleting the temporary copy. A separate short timeout probe verifies a TERM-ignoring child is terminated even when its parent exits promptly. The normal 180-second limit was sufficient for all three engines. Original application/runner hashes are verified in a finally block, and all three final control reports match the same new harness hash.
+
+```sh
+.venv/bin/python scripts/verify_service_regressions.py --browser chromium
+.venv/bin/python scripts/verify_service_regressions.py --browser firefox --output data/e2e-review/firefox-controls
+.venv/bin/python scripts/verify_service_regressions.py --browser webkit --output data/e2e-review/webkit-controls
+.venv/bin/python scripts/verify_access_regressions.py
+```
+
+Cursor Agent **`auto`** reviewed this frontend test-harness task, honoring the user's model preference. Its first two design responses contained progress rather than a formal verdict; the observed expectation-before-named-check concern was addressed by exact frame binding before implementation. The third/final implementation response is **APPROVE**, no blocker/major. Its provisional Firefox concern is resolved by the completed final report. Optional suggestions to relax the timeout or restructure conservative process-group cleanup were left out: no timeout occurred, and the stubborn-child probe validates the cleanup requirement. No new backend/security implementation was introduced, so this round did not request Claude review.
+
+Evidence stays ignored under **`data/e2e-recheck-20261006/`**: `baseline/` (all 12 suite reports/logs/screenshots), `service-controls/{chromium,firefox,webkit}/`, `access-controls/`, `timeout-cleanup.json`, reviewer JSON, original source/live inventories, and `summary.json`. Current-source baseline and negative-control reports contain only synthetic data. No new app fix or Docker rebuild was necessary. Real Cloudflare edge/IdP/MFA/cookies, offsite backup delivery, physical devices and actual supplier/bank transactions are **not** validated by these synthetic browser tests; the deployment/product gaps in the preceding section remain open.
