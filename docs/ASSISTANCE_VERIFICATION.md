@@ -44,3 +44,18 @@ WebKit 首輪及額外穩定性檢查曾偵測到舊頁面在重新整理後發�
 目前跨案件客戶總覽顯示最近 100 個案件／200 筆聯絡摘要；每個案件的聯絡列表仍保留完整已存紀錄。大量客戶的跨案歷史分頁是後續 UI 改善項目，並非刪除舊資料。
 
 證據在忽略版控的 `data/agency-assistance-20261006/`：Python log、review JSON／session、三種 engine 的 `regressions/`、Brave PID 證據與截圖、Docker report、WebKit diagnostic／穩定性重跑、更新前後 inventory 與加密備份／還原結果。操作參見 [網頁 Guide](../app/mom_static/guide.html)、[中文操作稿](USER_GUIDE_ZH_TW_DRAFT.md)、[英文架構](DEVELOPER_ARCHITECTURE.md)與[通知維運](NOTIFICATION_OPERATIONS.md)。
+
+## 2026-10-07 E2E 重跑
+
+對 commit `c69176b` 重新執行既有 E2E，沒有修改應用程式或測試斷言：
+
+- Chromium、Firefox、WebKit 各 **238 項**，合計 **714 項**通過；工作單、簽章登入、媽媽工作區、私人文件與新補完流程全數重跑。
+- 安裝版 Brave 的獨立可見視窗 **48 項**通過；核實實際 browser PID，並確認僅該測試 browser 已關閉。
+- WebKit 私人文件流程再連續重跑兩次，各 **44 項**通過；包含多頁競爭、保存後重新整理與導航，沒有 JavaScript 錯誤。
+- Docker **24 項**通過；另外核對 image 內所有應用程式檔案的雜湊與目前來源一致。
+- Chromium 的兩個未修改 baseline 通過，四個獨立服務流程缺陷注入均由指定斷言抓到預期失敗；Origin 與簽章金鑰 cache 的兩個負向對照亦通過。副本已清理，工作區來源未改動。
+- 各有 source manifest 的 browser 結果均與目前程式碼相符；Guide 生成一致性通過。本輪未重跑 Python 單元測試，不將前一輪 317 項結果計為本輪新增驗證。
+
+本機資料表更新前後逐表比對，僅 `agency_notification_state` 的正常 worker heartbeat 變動；原有 **42 個案件**及其餘資料表完全一致。媽媽模式、管理頁與 Guide 健康檢查通過，實際對外提醒通道仍停用。真實 SMTP／LINE 收件及公開 Cloudflare 登入驗收仍不在本輪範圍。
+
+本輪僅執行既有測試與更新驗證紀錄，沒有新增外部 reviewer approval。證據、來源 manifest、負向對照結果、Brave 截圖及本機資料 inventory 位於忽略版控的 `data/e2e-20261007/`，總報告為 `results.json`。
