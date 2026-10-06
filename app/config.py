@@ -45,6 +45,18 @@ class Settings:
     telegram_webhook_secret: str = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
     telegram_allowed_chat_ids: tuple[str, ...] = _csv("TELEGRAM_ALLOWED_CHAT_IDS")
 
+    reminders_enabled: bool = _bool('REMINDERS_ENABLED')
+    reminder_line_enabled: bool = _bool('REMINDER_LINE_ENABLED')
+    reminder_smtp_enabled: bool = _bool('REMINDER_SMTP_ENABLED')
+    reminder_staff_emails: tuple[str,...] = _csv('REMINDER_STAFF_EMAILS')
+    reminder_grace_minutes: int = int(os.getenv('REMINDER_GRACE_MINUTES','30'))
+    reminder_smtp_host: str = os.getenv('REMINDER_SMTP_HOST','')
+    reminder_smtp_port: int = int(os.getenv('REMINDER_SMTP_PORT','465'))
+    reminder_smtp_tls: str = os.getenv('REMINDER_SMTP_TLS','ssl')
+    reminder_smtp_user: str = os.getenv('REMINDER_SMTP_USER','')
+    reminder_smtp_password: str = os.getenv('REMINDER_SMTP_PASSWORD','')
+    reminder_smtp_from: str = os.getenv('REMINDER_SMTP_FROM','')
+
     pii_fernet_key: str = os.getenv("PII_FERNET_KEY", "")
     attachments_dir: str = os.getenv("ATTACHMENTS_DIR", "")
     backup_dir: str = os.getenv("BACKUP_DIR", "")

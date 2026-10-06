@@ -38,8 +38,11 @@ function allowSheetTransition() {
   if(authorizedGeneration===sheetGeneration&&authorizedEditEpoch===editEpoch)return true;
   return !sheet.open || !sheetDirty() || confirm('尚未儲存的填寫內容或回覆草稿會捨棄。確定離開？取消可繼續編輯。');
 }
-function beginSheetRequest() {
-  if (!allowSheetTransition()) return null;
+function beginSheetRequest(preservedEditor = null) {
+  const preserving=preservedEditor?.isConnected && ['replyDraft','crmMessageBody'].includes(preservedEditor.id)
+    && Array.from(sheetBody.querySelectorAll('[data-dirty="true"]:not([data-committed="true"])')).every(node=>node===preservedEditor);
+  if(preserving && (sheetBody.dataset.saving==='true'||sheetBody.querySelector('form[data-busy="true"]')))return null;
+  if (!preserving && !allowSheetTransition()) return null;
   authorizedEditEpoch = editEpoch;
   authorizedGeneration=++sheetGeneration;
   return sheetGeneration;
@@ -157,7 +160,7 @@ function setView(name, initialize = true) {
   if (name === 'today') loadHome();
   if (name === 'cases') loadCases();
   if (name === 'new' && initialize) resumeGuided();
-  if (name === 'settings') renderSettings();
+  if (name === 'settings') {renderSettings();window.dispatchEvent(new Event('travel-settings-open'));}
   if(extraViews.has(name))extraViews.get(name)();
   window.scrollTo({top: 0, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});
   const heading=$(`#view-${name} h2`);if(heading){heading.tabIndex=-1;heading.focus({preventScroll:true});}
@@ -174,7 +177,9 @@ function showLogin() {
   if (!dialog.open) dialog.showModal();
 }
 async function loadSession() {
+  const previousActor=state.auth?.email || 'operator';
   state.auth = await api('/api/auth/session');
+  if(previousActor!==(state.auth.email || 'operator'))window.dispatchEvent(new Event('travel-actor-changed'));
   const access = state.auth.mode === 'cloudflare';
   state.token = access ? '' : sessionStorage.getItem('travelDeskToken') || '';
   if (access) {sessionStorage.removeItem('travelDeskToken');sessionStorage.removeItem('travelDeskAdminToken');}
@@ -334,7 +339,7 @@ async function openCase(caseId) {
     ].map(([action,label])=>`<button class="secondary-button full" type="button" data-action="${action}" data-case-id="${escapeHtml(c.id)}">${label}</button>`).join('');
     const selections = (data.selections || []).map(option=>`<div class="notice-card ${option.usable?'ok':'warn'}"><b>已選${option.kind==='flight'?'機票':'住宿'}：</b>${escapeHtml(option.title)}${option.usable?'':`<p>${escapeHtml(option.blockers.join('；'))}</p>`}</div>`).join('');
     if (!sheetRequestCurrent(sheetToken)) return;
-    if(!openSheet(`${c.customer_name} · ${c.destination || '旅行案件'}`, `<div class="notice-card"><b>下一步：${escapeHtml(a.label)}</b><br><span class="muted">${escapeHtml(a.reason)}</span><div class="operation-actions">${primary}</div></div><div class="form-grid"><div><b>日期</b><p>${escapeHtml(c.depart_date || '未定')} ${c.return_date ? `→ ${escapeHtml(c.return_date)}` : ''}</p></div><div><b>旅客</b><p>${c.adults} 大人、${c.children} 小孩、${c.infants || 0} 嬰兒${c.children?`<br>小孩年齡：${escapeHtml(c.children_ages?.join('、') || '待補齊')}`:''}</p></div><div><b>預算</b><p>${c.budget_twd !== null ? `NT$ ${Number(c.budget_twd).toLocaleString()}` : '尚未設定'}</p></div><div><b>偏好與備註</b><p>${escapeHtml(c.notes || '尚未填寫')}</p></div></div>${selections}${caseOperationTiles(c,operations)}${c.status==='closed'?'<p class="muted">已結案案件僅供查看；需要修改時請先重新開案。</p>':`<details class="sales-actions"><summary>查價、選案與修改需求</summary><div class="stack">${buttons}</div></details>`}`,true,'new-case',caseId,sheetToken))return;
+    if(!openSheet(`${c.customer_name} · ${c.destination || '旅行案件'}`, `<div class="notice-card"><b>下一步：${escapeHtml(a.label)}</b><br><span class="muted">${escapeHtml(a.reason)}</span><div class="operation-actions">${primary}</div></div><div class="form-grid"><div><b>日期</b><p>${escapeHtml(c.depart_date || '未定')} ${c.return_date ? `→ ${escapeHtml(c.return_date)}` : ''}</p></div><div><b>旅客</b><p>${c.adults} 大人、${c.children} 小孩、${c.infants || 0} 嬰兒${c.children?`<br>小孩年齡：${escapeHtml(c.children_ages?.join('、') || '待補齊')}`:''}</p></div><div><b>預算</b><p>${c.budget_twd !== null ? `NT$ ${Number(c.budget_twd).toLocaleString()}` : '尚未設定'}</p></div><div><b>偏好與備註</b><p>${escapeHtml(c.notes || '尚未填寫')}</p></div></div>${selections}${caseOperationTiles(c,operations)}<div class="operation-actions"><button type="button" class="secondary-button" data-action="crm-open" data-case-id="${escapeHtml(caseId)}">客戶與聯絡紀錄</button><button type="button" class="secondary-button" data-action="reminder-open" data-case-id="${escapeHtml(caseId)}">自動提醒與寄送紀錄</button></div>${c.status==='closed'?'<p class="muted">已結案案件保留業務歷史，仍可追加客戶聯絡紀錄；變更業務資料請先重新開案。</p>':`<details class="sales-actions"><summary>查價、選案與修改需求</summary><div class="stack">${buttons}</div></details>`}`,true,'new-case',caseId,sheetToken))return;
     return true;
   } catch (err) { cancelSheetRequest(sheetToken); if (err instanceof ReauthenticationError) return; showToast(friendlyError(err)); }
 }
@@ -628,7 +633,7 @@ async function submitCustomerReply(form) {
   const result=await api('/api/customer-reply',{method:'POST',body:JSON.stringify({case_id:fd.get('case_id')||null,incoming_text:fd.get('incoming_text'),tone:fd.get('tone')})});
   if(!sheetRequestCurrent(submissionGeneration)||!form.isConnected)return;
   state.currentDraft={case_id:fd.get('case_id')||null,text:result.text,source:result.source};
-  sheetBody.innerHTML=`<div class="notice-card ok">${result.source==='template'?'已用案件資料與已選方案整理草稿，可直接修改文字。':'已產生回覆草稿。'} 請您核對後再貼給客人。</div><label class="form-grid"><span>回覆草稿（可修改）</span><textarea class="reply-editor" id="replyDraft" data-dirty="true" rows="14">${escapeHtml(result.text)}</textarea></label><button class="primary-button full" type="button" data-action="copy-draft">複製目前草稿</button><div class="feedback-row"><button type="button" data-feedback="accepted">👍 可以直接用</button><button type="button" data-feedback="edited">✏️ 我有修改</button><button type="button" data-feedback="prefer_future">🧠 以後都這樣</button><button type="button" data-feedback="rejected">👎 不要這樣</button></div><p class="muted">回饋先保存成改進紀錄，不會自動改變下次回覆。</p>`;
+  sheetBody.innerHTML=`<div class="notice-card ok">${result.source==='template'?'已用案件資料與已選方案整理草稿，可直接修改文字。':'已產生回覆草稿。'} 請您核對後再貼給客人。</div><label class="form-grid"><span>回覆草稿（可修改）</span><textarea class="reply-editor" id="replyDraft" data-dirty="true" rows="14">${escapeHtml(result.text)}</textarea></label><button class="primary-button full" type="button" data-action="copy-draft">複製目前草稿</button>${state.currentDraft.case_id?`<div class="operation-actions"><button type="button" class="secondary-button" data-action="crm-save-reply" data-case-id="${escapeHtml(state.currentDraft.case_id)}">保存目前草稿</button><button type="button" class="secondary-button" data-action="crm-draft-history" data-case-id="${escapeHtml(state.currentDraft.case_id)}">查看已保存草稿</button></div>`:""}<div class="feedback-row"><button type="button" data-feedback="accepted">👍 可以直接用</button><button type="button" data-feedback="edited">✏️ 我有修改</button><button type="button" data-feedback="prefer_future">🧠 以後都這樣</button><button type="button" data-feedback="rejected">👎 不要這樣</button></div><p class="muted">回饋先保存成改進紀錄，不會自動改變下次回覆。</p>`;
   $('.sheet').scrollTop=0;$('#replyDraft')?.focus({preventScroll:true});
 }
 

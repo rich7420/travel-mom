@@ -119,14 +119,17 @@ def list_private(case_id):
         travellers = [{k: t[k] for k in ('id', 'revision', 'status', 'category')} for t in rows(db, 'travellers', case_id)]
         attachments = [{k: a[k] for k in ('id', 'document_id', 'revision', 'status', 'media_type', 'size', 'created_at')} for a in rows(db, 'attachments', case_id)]
         from app.services.case_operations import pack_source_from, document_current
+        from app.services.traveller_services import pack_state
         roster = roster_state(db, case)
         documents = rows(db, 'documents', case_id)
         quote = next((q for q in rows(db, 'quotes', case_id) if q['status'] == 'accepted'), None)
-        source = pack_source_from(case, quote, rows(db, 'bookings', case_id), documents, roster)
+        services=pack_state(db,case)
+        source = pack_source_from(case, quote, rows(db, 'bookings', case_id), documents, roster,traveller_services=services)
         for doc in documents:
             doc['needs_recheck'] = doc['status'] == 'ready' and not document_current(doc, source)
         return {'case_closed': case.status.value == 'closed', 'travellers': travellers,
-                'roster': roster, 'attachments': attachments, 'documents': documents}
+                'roster': roster, 'attachments': attachments, 'documents': documents,'traveller_services':services,
+                'bookings':[{k:b[k] for k in ('id','revision','kind','title','status')} for b in rows(db,'bookings',case_id)]}
 
 
 def reveal_traveller(case_id, traveller_id, actor):

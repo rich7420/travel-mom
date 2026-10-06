@@ -274,3 +274,7 @@ legend { font-weight:650; margin-bottom:8px; }
 .service-secondary .operation-actions { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); }
 .service-secondary .operation-actions > button { min-width:0; }
 @media(max-width:560px) { .service-secondary .operation-actions { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+/* Private fulfilment fields share the existing paper-and-ink form system. */
+#travellerServiceForm fieldset { min-width:0; margin:0; padding:1rem; border:1px solid var(--line); border-radius:10px; display:grid; gap:.75rem; }
+#travellerServiceForm legend { font-weight:700; padding:0 .4rem; }
+#crmMessageBody { box-sizing:border-box; width:100%; resize:vertical; }

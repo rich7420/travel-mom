@@ -116,6 +116,7 @@
 
       <section id="view-settings" class="view" data-view="settings" aria-labelledby="settingsTitle">
         <div class="page-title-row"><div><p class="section-kicker">設定</p><h2 id="settingsTitle">偏好設定</h2><p class="muted">設定常用機場、航空與字體。</p></div></div>
+        <div id="reminderReadiness" aria-live="polite"></div>
         <form id="settingsForm" class="settings-card">
           <label><span>平常從哪個機場出發？</span><select id="defaultOrigin"><option value="TPE">桃園 TPE</option><option value="TSA">松山 TSA</option><option value="KHH">高雄 KHH</option><option value="RMQ">台中 RMQ</option></select></label>
           <fieldset><legend>常用航空</legend><div id="preferredAirlines" class="checkbox-grid"></div></fieldset>
@@ -148,8 +149,12 @@
   <dialog id="tokenDialog" class="center-dialog"><form id="tokenForm" method="dialog" class="dialog-card"><h2>連線密碼</h2><p class="muted">只有系統啟用管理密碼時才需要。密碼只存在這個瀏覽器分頁，不會寫入案件。</p><label><span>管理密碼</span><input id="tokenInput" type="password" autocomplete="off"></label><div class="button-row"><button class="secondary-button" type="button" data-action="clear-token">清除</button><button class="primary-button" type="submit">套用</button></div></form></dialog>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="/static/app.js" defer></script>
+  <script src="/static/private-forms.js" defer></script>
+  <script src="/static/command-forms.js" defer></script>
   <script src="/static/operations.js" defer></script>
   <script src="/static/travel-files.js" defer></script>
   <script src="/static/service-orders.js" defer></script>
+  <script src="/static/crm.js" defer></script>
+  <script src="/static/reminders.js" defer></script>
 </body>
 </html>

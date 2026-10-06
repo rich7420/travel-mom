@@ -15,7 +15,7 @@ from app.repositories import _case_from_row
 from app.services.case_workflow import case_workflow, trip_snapshot
 
 BUSINESS_ZONE = ZoneInfo("Asia/Taipei")
-CASE_TABLES = ("quotes", "work_items", "bookings", "documents", "ledger", "pretrip", "case_events", "travellers", "rosters", "attachments", "service_orders")
+CASE_TABLES = ("quotes", "work_items", "bookings", "documents", "ledger", "pretrip", "case_events", "travellers", "rosters", "attachments", "service_orders", "traveller_services")
 
 
 def snapshot(case) -> dict:
@@ -358,19 +358,22 @@ def patch_document(case_id: str, document_id: str, data, actor: str) -> dict:
     return command(case_id, data, actor, f"document.{document_id}.patch", execute)
 
 
-def pack_source_from(case, quote: dict | None, bookings: list[dict], documents: list[dict], roster=None, service_orders=()) -> dict:
+def pack_source_from(case, quote: dict | None, bookings: list[dict], documents: list[dict], roster=None, service_orders=(), traveller_services=()) -> dict:
     # Include voided/old bindings and every revision in the guard; no URL is fetched.
     source = {"case_snapshot": snapshot(case), "quote_id": quote["id"] if quote else None,
             "quote_version": quote["version"] if quote else None, "bookings": bookings, "documents": documents, "roster": roster or {"used": False}}
     pending = [{'id':o['id'],'revision':o['revision'],'status':o['status']} for o in service_orders if trip_pending(o, quote, bookings)]
     if pending:
         source['service_orders'] = pending
+    if traveller_services:
+        source['traveller_services']=list(traveller_services)
     return source
 
 
 def pack_source(db, case, quote: dict) -> dict:
     from app.services.travel_files import roster_state
-    return pack_source_from(case, quote, rows(db, "bookings", case.id), rows(db, "documents", case.id), roster_state(db, case), rows(db, "service_orders", case.id))
+    from app.services.traveller_services import pack_state
+    return pack_source_from(case, quote, rows(db, "bookings", case.id), rows(db, "documents", case.id), roster_state(db, case), rows(db, "service_orders", case.id),pack_state(db,case))
 
 
 def document_current(doc: dict, source: dict) -> bool:
@@ -396,6 +399,8 @@ def document_current(doc: dict, source: dict) -> bool:
 
 def pack_blockers(source: dict, quote: dict) -> list[str]:
     blockers = ["尚有改期／取消工作單未確認供應商結果"] if source.get("service_orders") else []
+    if any(v['status']=='active' and not v['current'] for v in source.get('traveller_services',[])):
+        blockers.append('票號或特殊需求的旅客／訂購已變更，請重新核對或封存舊服務紀錄')
     if source.get("roster", {}).get("used") and not source["roster"]["current"]:
         blockers.append("旅客名冊人數不符或需重新核對")
     if not trip_matches(source["case_snapshot"], quote["case_snapshot"]):
@@ -464,7 +469,9 @@ def case_operations(case_id: str) -> dict:
         bundle["accepted_quote_id"] = quote["id"] if quote else None
         bundle["balances"] = balances(quote, bundle["ledger"], bundle["service_orders"])
         from app.services.travel_files import roster_state
-        source = pack_source_from(case, quote, bundle["bookings"], bundle["documents"], roster_state(db, case), bundle["service_orders"])
+        from app.services.traveller_services import pack_state_from
+        services=pack_state_from(case,bundle["traveller_services"],bundle["travellers"],bundle["bookings"],quote)
+        source = pack_source_from(case, quote, bundle["bookings"], bundle["documents"], roster_state(db, case), bundle["service_orders"],services)
         bundle["warnings"] = pack_blockers(source, quote) if quote else ["尚未記錄客人採用的報價"]
         # Compute hashes before adding response-only flags to the stored records.
         source_hash = fingerprint(source) if quote else None
@@ -487,7 +494,7 @@ def case_operations(case_id: str) -> dict:
         bundle['eligible_service_booking_ids'] = [b['id'] for b in bundle['bookings'] if b['status']=='confirmed' and b['binding_current']]
         bundle['service_orders'] = [view(db, case, o, bundle['ledger']) for o in bundle['service_orders']]
         bundle.pop("sales_state")
-        for private_table in ("travellers", "rosters", "attachments"):
+        for private_table in ("travellers", "rosters", "attachments", "traveller_services"):
             bundle.pop(private_table)
         return {"case": case.model_dump(mode="json"), **bundle}
 
@@ -583,7 +590,9 @@ def lifecycle_summary(case, records: dict) -> dict:
     elif quote:
         from app.services.travel_files import roster_state_from
         roster = roster_state_from(case, records.get("travellers", []), records.get("rosters", []))
-        source = pack_source_from(case, quote, records["bookings"], records["documents"], roster, records.get("service_orders", []))
+        from app.services.traveller_services import pack_state_from
+        services=pack_state_from(case,records.get('traveller_services',[]),records.get('travellers',[]),records['bookings'],quote)
+        source = pack_source_from(case, quote, records["bookings"], records["documents"], roster, records.get("service_orders", []),services)
         completed.extend(pack_blockers(source, quote))
         current_hash = fingerprint(source)
         if not any(p["status"] == "delivered" and p["source_hash"] == current_hash for p in records["pretrip"]):

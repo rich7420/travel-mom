@@ -1,0 +1,27 @@
+# Notification operations
+
+The web application and independent reminder worker share the same configured SQLite database and encryption key. All outward reminder flags default false. OpenClaw and inbound LINE webhook enablement are independent; neither is required for web operation or reminder scheduling.
+
+Configure `REMINDERS_ENABLED`, plus the intended `REMINDER_SMTP_ENABLED` or `REMINDER_LINE_ENABLED`. For email, set `REMINDER_SMTP_HOST`, port, `REMINDER_SMTP_TLS=ssl` (usually 465) or `starttls` (usually 587), sender address and required provider credentials. TLS cannot be disabled. `REMINDER_STAFF_EMAILS` is the staff recipient allowlist; the operator email allowlist is the fallback. LINE uses `LINE_CHANNEL_ACCESS_TOKEN` and verified IDs in `LINE_ALLOWED_USER_IDS`; only staff LINE is implemented. Never put secrets in UI, source control or logs. See `.env.example` for disabled defaults.
+
+Customer email recipients must be explicitly linked to the case and have recorded current email consent. Changing email withdraws prior consent. Consent/recipient changes cancel queued jobs and pause affected rules. Editing or enabling a policy records its arming time and schedules only subsequent occurrences; it cannot replay an already accepted/unknown/in-flight occurrence. Old one-off deadlines require manual follow-up. Editing a policy saves a revision; only worker ticks generate jobs. Defaults use a 30-minute grace (`REMINDER_GRACE_MINUTES`). A daily occurrence uses the Taipei local date. Older days are missed, never sent as a backlog; at most the current eligible occurrence sends. Provider quotas and network failures have bounded retries.
+
+Run a single diagnostic tick with:
+
+```bash
+.venv/bin/python -m scripts.run_reminders --once --env-file .env
+```
+
+Run a supervised process with `--loop`. It polls every 30 seconds, records observed heartbeat and prints metadata status only. Settings and case reminder screens report disabled channels, disabled worker flag, stale heartbeat and restore pause. On macOS, `python -m scripts.install_reminder_schedule` generates a project-specific launchd plist under `data/`; `--install` installs it for the current user. It refuses existing/loaded jobs and never replaces other projects' jobs. Other hosts can supervise the same loop using their service manager. A stale heartbeat means staff should act manually while investigating logs. Network calls never hold a database transaction.
+
+Before enabling real sending, verify the provider account with an authorized synthetic recipient, ensure the worker/allowlists/consent are correct, inspect exact content, then explicitly enable each reviewed rule. Automated tests use fake transports and disposable databases: they do not certify a real provider account, quotas or recipient delivery.
+
+LINE retries retain a UUID key within 24 hours minus a safety margin. HTTP 409 counts as accepted only with an accepted-request ID. The accepted status means provider acceptance, not recipient delivery/read. See [official retry guidance](https://developers.line.biz/en/docs/messaging-api/retrying-api-request/) and [official push delivery guidance](https://developers.line.biz/en/docs/messaging-api/sending-messages/), checked 2026-10-06.
+
+SMTP uses explicit TLS, authentication, MAIL, RCPT and DATA. Transient failures before DATA can retry; a disconnect or uncertain response after DATA becomes `unknown`. Expired SMTP leases are also unknown and never automatically retransmitted. Inspect provider sent logs before manual acceptance/retry. Explicit retries retain Message-ID and require duplicate-risk acknowledgement; Message-ID does not guarantee provider deduplication. See [Python's SMTP documentation](https://docs.python.org/3.12/library/smtplib.html), checked 2026-10-06.
+
+Use scripted offline restores only. Restore modifies the staged copy before atomic publication: all rules pause (including those without jobs), queued jobs become paused, in-flight jobs become unknown, heartbeat resets and a fresh restore epoch prevents sends. Admin may POST evidence to `/api/system/reminders/acknowledge-restore` after reconciliation. This does not enable any rule; review each current recipient/source and explicitly re-enable it in the web UI. Copying a SQLite file manually bypasses these protections and is unsupported. Keep backup keys separate from bundles; do not change a key in place.
+
+The job's encrypted destination/body is an immutable snapshot, referenced by its accepted customer CRM communication. Staff sends remain in notification history and do not count as contacting the customer. Worker ticks drain up to 50 jobs or 20 seconds of work; on-time queued jobs do not expire while awaiting a busy worker. Channel-paused jobs recheck grace when enabled. Missed occurrences store routing metadata only, without an unsent body copy. Plaintext names and operational metadata remain searchable; the live DB is not wholly encrypted. Encrypted backup/restore validates current and historical tokens across the registered private tables. Source changes during an already-started provider call cannot recall a message; the result preserves the actual frozen original recipient/customer/origin attribution.
+
+Current conservative behaviour: any customer profile revision (including phone/notes) pauses customer-recipient policies for rechecking. Separate email-only contact revisions are a future refinement. Operator staff recipient identifiers are visible to the authenticated shared-agency team; this is not a multi-tenant CRM.

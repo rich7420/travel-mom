@@ -345,6 +345,10 @@ def init_db() -> None:
                    (805, "Encrypted traveller roster and private original attachments"))
         db.execute("INSERT OR IGNORE INTO schema_migrations(version,name,applied_at) VALUES(?,?,datetime('now'))",
                    (806, "Evidence-bearing service orders and linked settlements"))
+        from app.assistance_db import install
+        install(db)
+        db.execute("INSERT OR IGNORE INTO schema_migrations(version,name,applied_at) VALUES(?,?,datetime('now'))",
+                   (807, "Private passenger services, customer history and durable reminders"))
         db.commit()
 
 

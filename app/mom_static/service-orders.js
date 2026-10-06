@@ -278,7 +278,7 @@
   }
   function detail(c, b, o) {
     const a = o.assessment;
-    return `<h3 tabindex="-1">${E(o.title)}</h3><span class="case-status">${E(states[o.status])}</span>${note(`${kinds[o.kind]} · ${o.owner} · ${o.urgency === "urgent" ? "緊急" : "一般"}\n期限：${date(o.due_at)}（台北）\n${o.request_details}`)}${o.contact ? `<p class="muted preserve-lines" data-service-contact>聯絡／緊急窗口：${E(o.contact)}</p>` : ""}${b.case.status === "closed" ? warn("案件已結案，以下僅供核對歷史。") : ""}${a && !o.assessment_current ? warn("核對後案件或訂購已變更。新處理開始前請重新核對方案；已發生的供應商結果與款項仍保留。") : ""}${o.assessment_expired ? warn("核對條件已過期，不能新增採用或開始處理。已開始的實際處理仍可追蹤。") : ""}${actionList(c, o)}${o.resolution_blockers.length ? `<details open><summary>完成前還需要</summary>${o.resolution_blockers.map(warn).join("")}</details>` : ""}${a ? `<details open><summary>目前核對方案</summary>${assessmentSummary(o)}${o.decision ? note(`客人決定：${o.decision.decision === "approved" ? "採用" : "未採用"}\n${o.decision.customer_reply}`) : ""}</details>` : ""}${o.supplier_result ? `<details open><summary>供應商實際結果（追加更正保留原紀錄）</summary>${note(`${o.supplier_result.outcome === "confirmed" ? "已確認處理" : "供應商未能承辦"}\n${o.supplier_result.details}\n依據：${o.supplier_result.reference}`)}</details>` : ""}<details><summary>實際收退款 · ${o.settlements.length} 筆</summary>${o.settlements.map((e) => note(`${e.currency} ${e.amount} · ${moneyKinds[e.kind]} · ${e.status === "voided" ? "已作廢" : "已記錄"}\n${e.reference}\n${e.memo}`)).join("") || note("尚無實際款項。")}</details><details><summary>完整處理歷史 · ${o.history.length} 筆</summary>${o.history
+    return `<h3 tabindex="-1">${E(o.title)}</h3><span class="case-status">${E(states[o.status])}</span>${note(`${kinds[o.kind]} · ${o.owner} · ${o.urgency === "urgent" ? "緊急" : "一般"}\n期限：${date(o.due_at)}（台北）\n${o.request_details}`)}${o.contact ? `<p class="muted preserve-lines" data-service-contact>聯絡／緊急窗口：${E(o.contact)}</p>` : ""}${b.case.status === "closed" ? warn("案件已結案，以下僅供核對歷史。") : ""}${a && !o.assessment_current ? warn("核對後案件或訂購已變更。新處理開始前請重新核對方案；已發生的供應商結果與款項仍保留。") : ""}${o.assessment_expired ? warn("核對條件已過期，不能新增採用或開始處理。已開始的實際處理仍可追蹤。") : ""}${actionList(c, o)}${b.case.status === "closed" ? button("追加結案後聯絡", "crm-open", c, "", `data-service-order-id="${E(o.id)}"`) : ""}${o.resolution_blockers.length ? `<details open><summary>完成前還需要</summary>${o.resolution_blockers.map(warn).join("")}</details>` : ""}${a ? `<details open><summary>目前核對方案</summary>${assessmentSummary(o)}${o.decision ? note(`客人決定：${o.decision.decision === "approved" ? "採用" : "未採用"}\n${o.decision.customer_reply}`) : ""}</details>` : ""}${o.supplier_result ? `<details open><summary>供應商實際結果（追加更正保留原紀錄）</summary>${note(`${o.supplier_result.outcome === "confirmed" ? "已確認處理" : "供應商未能承辦"}\n${o.supplier_result.details}\n依據：${o.supplier_result.reference}`)}</details>` : ""}<details><summary>實際收退款 · ${o.settlements.length} 筆</summary>${o.settlements.map((e) => note(`${e.currency} ${e.amount} · ${moneyKinds[e.kind]} · ${e.status === "voided" ? "已作廢" : "已記錄"}\n${e.reference}\n${e.memo}`)).join("") || note("尚無實際款項。")}</details><details><summary>完整處理歷史 · ${o.history.length} 筆</summary>${o.history
       .slice()
       .reverse()
       .map((h) =>
@@ -679,7 +679,7 @@
               note: "處理備註",
               contact_supplier: "已聯絡供應商",
               contact_customer: "已聯絡客人",
-              correction: "追加更正（保留原結果）",
+              correction: "追加更正註記（保留原結果）",
             })
           : warn(
               "緊急事件請先依原流程協助安全、醫療與聯絡，再記錄處理；無須等費用方案或客人採用。",

@@ -25,7 +25,7 @@ def test_backup_reads_committed_wal_and_restore_matches_app_data(client, tmp_pat
         writer.commit()
         backup = tmp_path/'backup.db'
         result = snapshot(source, backup)
-        assert result['schema_version'] == 806 and result['cases'] > 0
+        assert result['schema_version'] == 807 and result['cases'] > 0
         assert backup.stat().st_mode & 0o777 == 0o600
         restored = tmp_path/'restored.db'
         snapshot(backup, restored)

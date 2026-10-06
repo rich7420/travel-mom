@@ -1,7 +1,7 @@
 'use strict';
 // Full private fields exist only after explicit reveal; uploads keep non-sensitive retry receipts.
 (() => {
-  let privacyEpoch=0;
+  const P=window.TravelPrivacy;
   const A=window.MomApp,E=A.escapeHtml,$=s=>document.querySelector(s);
   const base=c=>`/api/mom/cases/${encodeURIComponent(c)}`;
   const categories={adult:'大人',child:'小孩',infant:'嬰兒'};
@@ -13,11 +13,6 @@
   const pending=c=>{try{return JSON.parse(sessionStorage.getItem(key(c))||'[]');}catch{return [];}};
   function storePending(c,values){if(values.length)sessionStorage.setItem(key(c),JSON.stringify(values));else sessionStorage.removeItem(key(c));}
   function forget(c,id){storePending(c,pending(c).filter(p=>p.id!==id));}
-  function scrub(){
-    $('#sheetBody')?.querySelectorAll('[data-private]').forEach(node=>{node.querySelectorAll('input,textarea').forEach(input=>{input.value='';});node.replaceChildren();node.dataset.dirty='false';if(node.travelOperation)node.travelOperation.retry=null;});
-  }
-  window.addEventListener('travel-auth-expired',()=>{++privacyEpoch;scrub();});
-  $('#sheet').addEventListener('close',()=>{if(!$('#sheet').open)scrub();});
   async function open(c,focus='') {
     const generation=A.beginSheetRequest();if(generation===null)return;
     let reconciliation='';
@@ -29,7 +24,7 @@
     const b=await A.api(`${base(c)}/travel-files`);if(!A.sheetRequestCurrent(generation))return;
     const roster=b.roster;
     const message=!roster.used?'尚未建立名冊。已使用名冊的案件，交付前須人數相符並完成核對。':roster.current?'目前名冊已核對。':'名冊或需求已變更，需重新核對。';
-    const travellerRows=b.travellers.map((t,i)=>`<article class="operation-record"><h3>旅客 ${i+1} · ${E(categories[t.category])}${t.status==='archived'?' · 已封存':''}</h3><p class="muted">姓名、生日與護照資料預設隱藏。</p><div class="operation-actions">${button('查看完整資料','files-reveal',c,`data-id="${E(t.id)}"`)}${!b.case_closed&&t.status==='active'?button('修改旅客','files-form',c,`data-intent="traveller" data-id="${E(t.id)}"`)+button('封存移出名冊','files-form',c,`data-intent="traveller-archive" data-id="${E(t.id)}"`):''}</div></article>`).join('');
+    const travellerRows=b.travellers.map((t,i)=>`<article class="operation-record"><h3>旅客 ${i+1} · ${E(categories[t.category])}${t.status==='archived'?' · 已封存':''}</h3><p class="muted">姓名、生日與護照資料預設隱藏。</p><div class="operation-actions">${button('票號與特殊需求','files-service-open',c,`data-id="${E(t.id)}"`)+button('查看完整資料','files-reveal',c,`data-id="${E(t.id)}"`)}${!b.case_closed&&t.status==='active'?button('修改旅客','files-form',c,`data-intent="traveller" data-id="${E(t.id)}"`)+button('封存移出名冊','files-form',c,`data-intent="traveller-archive" data-id="${E(t.id)}"`):''}</div></article>`).join('');
     const documents=b.documents.map(doc=>{
       const files=b.attachments.filter(a=>a.document_id===doc.id);
       return `<article class="operation-record"><h3>${E(doc.title)}</h3><p class="muted">${doc.needs_recheck?'內容已變更，需重新核對':doc.status==='ready'?'已核對':files.some(a=>a.status==='active')?'已上傳待核對':'尚無有效原件'} · ${files.length} 份原件</p>${files.map((a,index)=>`<div class="file-row"><p class="muted">原件 ${index+1} · ${E(new Intl.DateTimeFormat('zh-TW',{timeZone:'Asia/Taipei',dateStyle:'short',timeStyle:'short'}).format(new Date(a.created_at)))}（台北）</p><span>${E(a.media_type.split('/')[1].toUpperCase())} · ${Math.ceil(a.size/1024)} KB · ${a.status==='archived'?'已封存':'待人工核對／保留原件'}</span><div class="operation-actions">${button('下載原件','files-download',c,`data-id="${E(a.id)}"`)}${!b.case_closed&&a.status==='active'?button('封存原件','files-form',c,`data-intent="attachment-archive" data-id="${E(a.id)}"`):''}</div></div>`).join('')}${!b.case_closed?button('上傳原件','files-form',c,`data-intent="upload" data-id="${E(doc.id)}"`):''}</article>`;
@@ -40,15 +35,15 @@
     if(focus)requestAnimationFrame(()=>$('#sheetBody').querySelector(focus)?.focus());
   }
   async function reveal(el){
-    const epoch=privacyEpoch,c=el.dataset.caseId,id=el.dataset.id,generation=A.beginSheetRequest();if(generation===null)return;
+    const token=P.capture(),c=el.dataset.caseId,id=el.dataset.id,generation=A.beginSheetRequest();if(generation===null)return;
     const value=await A.api(`${base(c)}/travellers/${encodeURIComponent(id)}/reveal`);
-    if(!A.sheetRequestCurrent(generation)||epoch!==privacyEpoch)return;
+    if(!A.sheetRequestCurrent(generation)||!P.current(token))return;
     const labels={name:'證件姓名',date_of_birth:'生日',passport_number:'護照號碼',passport_expiry:'護照效期',nationality:'國籍'};
     if(!A.openSheet('查看旅客資料',`<div data-private>${Object.entries(labels).map(([k,label])=>`<p><b>${E(label)}</b><br>${E(value[k])}</p>`).join('')}${button('隱藏並返回名冊','files-open',c)}</div>`,true,'pretrip',c,generation))return;
     A.setSheetBack(()=>open(c,`[data-action="files-reveal"][data-id="${CSS.escape(id)}"]`),'返回名冊');
   }
   async function form(el){
-    const epoch=privacyEpoch,c=el.dataset.caseId,id=el.dataset.id||'',intent=el.dataset.intent;
+    const token=P.capture(),c=el.dataset.caseId,id=el.dataset.id||'',intent=el.dataset.intent;
     const generation=A.beginSheetRequest();if(generation===null)return;
     const b=await A.api(`${base(c)}/travel-files`);
     if(b.case_closed)throw new Error('案件已結案，請先重新開案。');
@@ -67,7 +62,7 @@
       const traveller=intent==='traveller-archive',value=(traveller?b.travellers:b.attachments).find(t=>t.id===id);if(!value)throw new Error('紀錄已不存在。');
       title=traveller?'封存旅客':'封存原件';body='<p class="notice-card">保留歷史，不刪除資料；此案件須重新核對。</p>'+field('原因','reason','','required maxlength="500"')+proof();endpoint=`${traveller?'travellers':'attachments'}/${encodeURIComponent(id)}/archive`;payload=v=>({...evidence(v),reason:v.reason,expected_revision:value.revision});
     }
-    if(!A.sheetRequestCurrent(generation)||epoch!==privacyEpoch)return;
+    if(!A.sheetRequestCurrent(generation)||!P.current(token))return;
     if(!A.openSheet(title,`<form id="travelFileForm" class="form-grid" ${['traveller','upload'].includes(intent)?'data-private':''}>${body}<button type="submit" class="primary-button full">${E(title)}</button></form>`,true,'pretrip',c,generation))return;
     const node=$('#travelFileForm');node.travelOperation={c,id,intent,endpoint,method,payload,stamp:A.currentSheetGeneration(),revision:b.documents.find(d=>d.id===id)?.revision};
     A.setSheetBack(()=>open(c,`[data-action="files-form"][data-intent="${intent}"]${id?`[data-id="${CSS.escape(id)}"]`:''}`),'返回名冊與原件');
@@ -104,9 +99,61 @@
     const blob=await A.api(`${base(el.dataset.caseId)}/attachments/${encodeURIComponent(el.dataset.id)}/download`,{responseType:'blob'});
     const url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download=`原始文件.${{'application/pdf':'pdf','image/jpeg':'jpg','image/png':'png'}[blob.type]||'bin'}`;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
   }
+  window.TravelFiles=Object.freeze({open});
   A.registerAction('files-open',el=>open(el.dataset.caseId));
   A.registerAction('files-form',form);
   A.registerAction('files-reveal',reveal);
   A.registerAction('files-download',download);
   A.registerForm('travelFileForm',submit);
+})();
+
+// Passenger fulfilment is separate from identity verification and original files.
+(() => {
+  const A=window.MomApp,H=window.Assistance,E=A.escapeHtml;
+  const labels={seat:'座位',meal:'餐食',wheelchair:'輪椅',baggage:'行李',other:'其他需求'};
+  const states={not_requested:'未提出',requested:'已提出待回覆',confirmed:'供應商已確認',declined:'供應商未能提供'};
+  async function open(c,t){
+    const ctx=H.context();if(!ctx)return;
+    const recovered=await H.recover(c),b=await A.api(`${H.base(c)}/travel-files`);if(!H.current(ctx))return;
+    const rows=b.traveller_services.filter(v=>v.traveller_id===t);
+    const body=recovered+'<p class="muted">票號與需求分別關聯每位旅客及實際訂購。修改不會撤銷證件名冊核對；行前文件仍需核對最新服務內容。</p>'+(!b.case_closed?H.button('新增票號／需求','files-service-form',c,'',`data-traveller-id="${E(t)}"`):'')+rows.map(v=>`<article class="operation-record"><h3>${v.status==='archived'?'已封存':v.current?'目前有效':'旅客或訂購已變更，需重新核對'}</h3><p class="muted">票號與需求預設隱藏。</p><div class="operation-actions">${H.button('查看完整內容','files-service-reveal',c,v.id,`data-traveller-id="${E(t)}"`)}${!b.case_closed&&v.status==='active'?H.button('修改／重新核對','files-service-form',c,v.id,`data-traveller-id="${E(t)}"`)+H.button('封存此筆服務','files-service-archive',c,v.id,`data-traveller-id="${E(t)}"`):''}</div></article>`).join('');
+    if(A.openSheet('逐人票號與特殊需求',body,true,'pretrip',c,ctx.generation))A.setSheetBack(()=>window.TravelFiles.open(c,`[data-action=files-service-open][data-id="${CSS.escape(t)}"]`),'返回名冊與原件');
+  }
+  async function form(el,archive=false){
+    const c=el.dataset.caseId,t=el.dataset.travellerId,id=el.dataset.id,ctx=H.context();if(!ctx)return;
+    const b=await A.api(`${H.base(c)}/travel-files`);if(b.case_closed)throw new Error('案件已結案，服務內容僅供查看。');
+    const old=id?await A.api(`${H.base(c)}/traveller-services/${encodeURIComponent(id)}/reveal`,{headers:H.headers(ctx.privacy.actor)}):{};
+    const traveller=b.travellers.find(v=>v.id===t&&v.status==='active');
+    let body='<p class="notice-card">封存保留歷史，行前交付須重新核對。</p>';
+    if(!archive){
+      if(!traveller)throw new Error('旅客已封存，無法新增或重新核對服務。');
+      const bookings=b.bookings.filter(v=>v.status==='confirmed');if(!bookings.length)throw new Error('請先登錄供應商訂購確認。');
+      body=H.select('已確認訂購','booking_id',Object.fromEntries(bookings.map(v=>[v.id,v.title])),old.booking_id)+A.field('航段／日期或服務描述','segment_label',old.segment_label||'','required maxlength="160"')+A.field('票號（可留空）','ticket_number',old.ticket_number||'','maxlength="40" autocomplete="off"');
+      for(const [k,label] of Object.entries(labels)){
+        const request=old.requests?.[k]||{};
+        body+=`<fieldset><legend>${E(label)}</legend>`+A.field('需求內容',k,request.value||'','maxlength="500"')+H.select('處理狀態',k+'_status',states,request.status||'not_requested')+A.field('供應商確認依據',k+'_reference',request.supplier_reference||'','maxlength="500"')+'</fieldset>';
+      }
+      body+=`<label><span>服務備註</span><textarea name="notes" maxlength="2000" rows="3">${E(old.notes||'')}</textarea></label>`;
+    }
+    H.mount(ctx,c,archive?'封存旅客服務':'逐人票號與需求','travellerServiceForm',body,{scope:c,target:id,action:archive?'traveller-service.archive':'traveller-service.write',endpoint:`${H.base(c)}/traveller-services${id?'/'+encodeURIComponent(id):''}${archive?'/archive':''}`,method:id&&!archive?'PATCH':'POST',revision:old.revision,returnId:t,traveller,bookings:b.bookings,archive,returnAction:'files-service-open'},()=>open(c,t));
+  }
+  async function reveal(el){
+    const c=el.dataset.caseId,id=el.dataset.id,t=el.dataset.travellerId,ctx=H.context();if(!ctx)return;
+    const v=await A.api(`${H.base(c)}/traveller-services/${encodeURIComponent(id)}/reveal`,{headers:H.headers(ctx.privacy.actor)});if(!H.current(ctx))return;
+    const content=value=>`<p>${E(value.segment_label)}<br>票號：${E(value.ticket_number||'未填')}</p>${Object.entries(labels).map(([k,label])=>`<p><b>${E(label)}</b> · ${E(states[value.requests?.[k]?.status||'not_requested'])}<br>${E(value.requests?.[k]?.value||'')}<br>${E(value.requests?.[k]?.supplier_reference||'')}</p>`).join('')}<p class="preserve-lines">${E(value.notes)}</p>`;
+    if(A.openSheet('查看票號與需求',`<div data-private>${content(v)}<details><summary>歷史 · ${v.history.length} 筆</summary>${v.history.map(h=>`<article>${content(h.content)}<p>${E(h.at)} · ${E(h.actor)}</p></article>`).join('')}</details></div>`,true,'pretrip',c,ctx.generation))A.setSheetBack(()=>open(c,t),'返回旅客服務');
+  }
+  A.registerAction('files-service-open',el=>open(el.dataset.caseId,el.dataset.id));
+  A.registerAction('files-service-form',el=>form(el));A.registerAction('files-service-archive',el=>form(el,true));A.registerAction('files-service-reveal',reveal);
+  A.registerForm('travellerServiceForm',async form=>{
+    const op=form.assistanceOperation;
+    if(form.assistanceCommand?.frozen){await H.submit(form,{},op);await H.saved(form,'已核對上次保存結果。');return;}
+    const v=Object.fromEntries(new FormData(form));let data=H.evidence(v);
+    if(op.archive)data={...data,expected_revision:op.revision};
+    else{
+      const booking=op.bookings.find(b=>b.id===v.booking_id);
+      data={...data,traveller_id:op.traveller.id,traveller_revision:op.traveller.revision,booking_id:booking.id,booking_revision:booking.revision,segment_label:v.segment_label,ticket_number:v.ticket_number,notes:v.notes,requests:Object.fromEntries(Object.keys(labels).map(k=>[k,{value:v[k],status:v[k+'_status'],supplier_reference:v[k+'_reference']}])),...(op.target?{expected_revision:op.revision}:{})};
+    }
+    await H.submit(form,data,op);await H.saved(form,'逐人服務已保存，請核對行前交付。');
+  });
 })();

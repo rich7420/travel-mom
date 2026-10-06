@@ -24,6 +24,7 @@ import uuid
 from cryptography.fernet import Fernet, InvalidToken
 from app.config import settings
 from scripts.database_backup import snapshot, validate
+from app.private_storage import validate_private, pause_after_restore
 from app.services.travel_files import blob_path, private_dir, bounded_blob, directory_handle
 
 MAX_DB_BYTES = 128 * 1024 * 1024
@@ -134,11 +135,7 @@ def backup(source=None, attachments=None, root=None, key=None, retention=RETENTI
             inventory = []
             with closing(sqlite3.connect(plain)) as db:
                 tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-                if 'agency_travellers' in tables:
-                    for row in db.execute('SELECT payload_json FROM agency_travellers'):
-                        cipher.decrypt(json.loads(row[0])['encrypted'].encode())
-                for row in db.execute('SELECT encrypted_payload FROM pii_vault'):
-                    cipher.decrypt(row[0].encode() if isinstance(row[0], str) else row[0])
+                validate_private(db,cipher)
                 values = [json.loads(r[0]) for r in db.execute('SELECT payload_json FROM agency_attachments')] if 'agency_attachments' in tables else []
             for record in values:
                 source_blob = blob_path(record['storage_id'], attachments)
@@ -228,6 +225,10 @@ def restore(bundle, database, attachments, key):
         os.chmod(working_db, 0o600)
         with closing(sqlite3.connect(working_db)) as db:
             info = validate(db)
+            validate_private(db,cipher)
+            pause_after_restore(db)
+            db.commit()
+            validate(db)
             tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
             records = [json.loads(r[0]) for r in db.execute('SELECT payload_json FROM agency_attachments')] if 'agency_attachments' in tables else []
         inventory = {item['storage_id']: item for item in manifest['attachments']}

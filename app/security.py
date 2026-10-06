@@ -51,6 +51,15 @@ def operator_authorized(request: Request) -> bool:
 # Exact exemptions only. Channel handlers authenticate their own signed payloads.
 _ACCESS_EXEMPT = {("GET", "/livez"), ("POST", "/webhooks/line"), ("POST", "/webhooks/telegram")}
 _OPERATOR_ROUTES = (
+    ("GET", r"/api/mom/(?:customers|reminder-status|customer-receipts/[^/]+/[^/]+)"),
+    ("GET", r"/api/mom/customers/[^/]+(?:/(?:reveal|history))?"),
+    ("POST", r"/api/mom/customers(?:/[^/]+/consents)?"),
+    ("PATCH", r"/api/mom/customers/[^/]+"),
+    ("GET", r"/api/mom/cases/[^/]+/(?:crm|traveller-services|reminders|assistance-receipts/[^/]+)"),
+    ("GET", r"/api/mom/cases/[^/]+/(?:traveller-services|communications|reminders|reminder-jobs)/[^/]+/reveal"),
+    ("POST", r"/api/mom/cases/[^/]+/(?:customer-link|communications|traveller-services|reminders)"),
+    ("PATCH", r"/api/mom/cases/[^/]+/(?:communications|traveller-services|reminders)/[^/]+"),
+    ("POST", r"/api/mom/cases/[^/]+/(?:communications/[^/]+/attest|traveller-services/[^/]+/archive|reminder-jobs/[^/]+/confirm)"),
     ("GET", r"/api/mom/cases/[^/]+/service-order-receipts/[^/]+"),
     ("POST", r"/api/mom/cases/[^/]+/service-orders"),
     ("PATCH", r"/api/mom/cases/[^/]+/service-orders/[^/]+"),

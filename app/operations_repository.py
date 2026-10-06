@@ -19,7 +19,7 @@ class OperationBusy(RuntimeError):
     pass
 
 
-TABLES = {"quotes", "work_items", "bookings", "documents", "ledger", "pretrip", "case_events", "travellers", "rosters", "attachments", "service_orders"}
+TABLES = {"quotes", "work_items", "bookings", "documents", "ledger", "pretrip", "case_events", "travellers", "rosters", "attachments", "service_orders", "traveller_services", "customer_links", "communications", "reminders"}
 
 
 def encode(value) -> str:
@@ -59,6 +59,15 @@ def save(db, table: str, value: dict) -> dict:
                        supplier_key=value["supplier"].casefold(), confirmation_key="".join(value["confirmation_number"].split()).casefold())
     elif table == "pretrip":
         columns.update(version=value["version"])
+    elif table == "traveller_services":
+        columns.update(traveller_id=value['traveller_id'],booking_id=value['booking_id'],status=value['status'])
+    elif table == "customer_links":
+        columns.update(customer_id=value['customer_id'])
+    elif table == "communications":
+        columns.update(customer_id=value['customer_id'],status=value['status'],notification_job_id=value.get('notification_job_id'))
+    elif table == "reminders":
+        columns.update(source_kind=value['source_kind'],source_id=value['source_id'],channel=value['channel'],
+                       customer_id=value.get('customer_id'),enabled=int(value['enabled']))
     fields = list(columns)
     updates = ",".join(f"{name}=excluded.{name}" for name in fields if name not in {"id", "case_id", "created_at"})
     db.execute(f"INSERT INTO agency_{table}({','.join(fields)}) VALUES({','.join('?' for _ in fields)}) ON CONFLICT(id) DO UPDATE SET {updates}", tuple(columns.values()))
@@ -69,13 +78,21 @@ def new_record(case_id: str, prefix: str, payload: dict) -> dict:
     return {**payload, "id": new_id(prefix), "case_id": case_id, "created_at": now_iso(), "revision": 1}
 
 
-def command(case_id: str, data, actor: str, action: str, execute, *, private=False) -> dict:
+def command_fingerprint(data, actor: str, action: str, *, private=False) -> tuple[dict,str]:
+    """Preserve the original command digest format, including patch field semantics."""
     payload = data.model_dump(mode="json", exclude={"request_id"}, exclude_unset=action.endswith(".patch"))
     content = encode({"action": action, "payload": payload, "actor": actor}).encode()
     if private and not settings.pii_fernet_key:
         raise ValueError("請由管理員先設定旅客資料加密金鑰")
     private_key = hmac.new(settings.pii_fernet_key.encode(), b"command-fingerprint-v1", hashlib.sha256).digest() if private else None
     digest = hmac.new(private_key, content, hashlib.sha256).hexdigest() if private else hashlib.sha256(content).hexdigest()
+    return payload,digest
+
+
+def command(case_id: str, data, actor: str, action: str, execute, *, private=False, allow_closed=False) -> dict:
+    if allow_closed and not action.startswith('crm.'):
+        raise ValueError('只有客戶聯絡操作可在已結案案件追加紀錄')
+    payload,digest=command_fingerprint(data,actor,action,private=private)
     try:
         with connect() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -87,14 +104,16 @@ def command(case_id: str, data, actor: str, action: str, execute, *, private=Fal
                 if previous[0] != digest:
                     raise OperationConflict("重試編號已用於不同內容，請重新提交")
                 return json.loads(previous[1])
-            if case_row["status"] == "closed" and action != "case.reopen":
+            if case_row["status"] == "closed" and action != "case.reopen" and not allow_closed:
                 raise OperationConflict("已結案案件僅供查看，請先記錄重新開案")
             result = execute(db, _case_from_row(case_row))
+            from app.services.reminders import cancel_invalid
+            cancel_invalid(db,case_id)
             next_status = db.execute("SELECT status FROM trip_cases WHERE id=?", (case_id,)).fetchone()[0]
             timestamp = now_iso()
             db.execute("INSERT INTO agency_commands VALUES(?,?,?,?,?,?,?)", (case_id, str(data.request_id), action, digest, encode(result), actor, timestamp))
             # Never call audit() or another repository writer while holding this lock.
-            db.execute("INSERT INTO audit_log(case_id,actor,action,payload_json,created_at) VALUES(?,?,?,?,?)", (case_id, actor, f"agency.{action}", encode({"request_id": str(data.request_id), "record_id": result.get("id"), "reason": payload.get("reason", ""), "status_before": case_row["status"], "status_after": next_status}), timestamp))
+            db.execute("INSERT INTO audit_log(case_id,actor,action,payload_json,created_at) VALUES(?,?,?,?,?)", (case_id, actor, f"agency.{action}", encode({"request_id": str(data.request_id), "record_id": result.get("id"), "reason": "" if private else payload.get("reason", ""), "status_before": case_row["status"], "status_after": next_status}), timestamp))
             return result
     except sqlite3.OperationalError as exc:
         if "locked" in str(exc).lower() or "busy" in str(exc).lower():

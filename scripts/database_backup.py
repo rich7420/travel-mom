@@ -26,14 +26,23 @@ def validate(db: sqlite3.Connection) -> dict:
     if db.execute('PRAGMA foreign_key_check').fetchone():
         raise ValueError('SQLite foreign key check failed')
     version = db.execute('SELECT MAX(version) FROM schema_migrations').fetchone()[0]
-    if version not in {803, 804, 805, 806}:
-        raise ValueError(f'Unsupported schema version: {version}; expected 803, 804, 805 or 806')
+    if version not in {803, 804, 805, 806, 807}:
+        raise ValueError(f'Unsupported schema version: {version}; expected 803 through 807')
     tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     required = REQUIRED_TABLES | ({'agency_case_events'} if version >= 804 else set())
     if version >= 805:
         required |= {'agency_travellers', 'agency_rosters', 'agency_attachments'}
     if version >= 806:
         required.add('agency_service_orders')
+    if version >= 807:
+        required |= {'agency_traveller_services','agency_customers','customer_commands','agency_customer_links',
+                     'agency_communications','agency_reminders','agency_notification_jobs',
+                     'agency_notification_attempts','agency_notification_state'}
+        triggers = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='trigger'")}
+        if not {'immutable_notification_attempt_update','immutable_notification_attempt_delete','immutable_notification_payload'} <= triggers:
+            raise ValueError('Snapshot is missing notification immutability triggers')
+        if db.execute('SELECT COUNT(*) FROM agency_notification_state WHERE id=1').fetchone()[0] != 1:
+            raise ValueError('Snapshot is missing notification state')
     if not required <= tables:
         raise ValueError('Snapshot is missing required application tables')
     if version >= 804:
@@ -43,7 +52,7 @@ def validate(db: sqlite3.Connection) -> dict:
     return {'schema_version': version, 'cases': db.execute('SELECT COUNT(*) FROM trip_cases').fetchone()[0]}
 
 
-def snapshot(source: Path | str, target: Path | str) -> dict:
+def snapshot(source: Path | str, target: Path | str, *, restored=False) -> dict:
     source, target = Path(source).resolve(strict=True), Path(target).absolute()
     if not source.is_file():
         raise ValueError('Source must be a regular SQLite database')
@@ -63,6 +72,11 @@ def snapshot(source: Path | str, target: Path | str) -> dict:
             original.backup(copy)
             copy.execute('PRAGMA journal_mode=DELETE')
             result = validate(copy)
+            if restored:
+                from app.private_storage import pause_after_restore
+                pause_after_restore(copy)
+                copy.commit()
+                validate(copy)
         with temp.open('rb') as handle:
             os.fsync(handle.fileno())
         refuse_existing()
@@ -87,7 +101,7 @@ def main():
     parser.add_argument('target', type=Path)
     args = parser.parse_args()
     import json
-    print(json.dumps({'action': args.action, **snapshot(args.source, args.target)}))
+    print(json.dumps({'action': args.action, **snapshot(args.source, args.target, restored=args.action=='restore')}))
 
 
 if __name__ == '__main__':
