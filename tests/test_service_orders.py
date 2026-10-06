@@ -395,3 +395,38 @@ def test_supplier_cancellation_updates_booking_status_preserving_manual_progress
     assert sum(b['status']=='confirmed' for b in current['bookings'])==(0 if full else 1)
     next_action=client.get(f"/api/mom/cases/{case['id']}").json()['next_action']
     assert next_action['kind']=='service_orders' and next_action['record_id']==order['id']
+
+
+def test_completed_contacts_preserve_money_authorization_and_resolution(client):
+    case=ok(client.post('/api/cases',json={'customer_name':'完成後聯絡合成','adults':1}))
+    order=start(client,case,assessed(client,case,create(client,case),[
+        {'currency':'TWD','customer_receipt':'300','supplier_payment':'200','final_customer_due':'300'}]))
+    order=result(client,case,order)
+    for kind,amount in [('customer_receipt','300'),('supplier_payment','200')]:
+        order=ok(action(client,case,order,'settlement',kind=kind,amount=amount,currency='TWD'))
+    order=ok(resolve(client,case,order))
+    before=bundle(client,case)
+    preserved={k:order.get(k) for k in ('status','assessment','decision','execution','supplier_result','resolution','resolved_at','balance_quote_id','end_trip')}
+    for stage in ('note','contact_supplier','contact_customer','correction'):
+        payload=evidence(expected_revision=order['revision'],stage=stage,message='追加聯絡，保留原處理結果')
+        response=post(client,case,f"service-orders/{order['id']}/progress",payload)
+        order=ok(response)
+        assert post(client,case,f"service-orders/{order['id']}/progress",payload).json()==order
+        assert {k:order.get(k) for k in preserved}==preserved
+        assert action(client,case,{**order,'revision':order['revision']-1},'progress',stage=stage,message='過期表單').status_code==409
+    after=bundle(client,case)
+    assert after['ledger']==before['ledger'] and after['balances']==before['balances']
+    assert after['service_orders'][0]['financial_current']
+    assert after['service_orders'][0]['actions']==['note','reopen']
+    for stage in ('start','safety_assistance'):
+        fields={'message':'不可重新執行'} if stage=='safety_assistance' else {}
+        assert action(client,case,order,'progress',stage=stage,**fields).status_code==409
+
+
+def test_completed_unassessed_incident_supplier_contact_cannot_reopen(client):
+    case=ok(client.post('/api/cases',json={'customer_name':'無金流完成後聯絡合成','adults':1}))
+    order=create(client,case)
+    order=ok(action(client,case,order,'progress',stage='safety_assistance',message='已協助'))
+    order=ok(resolve(client,case,order))
+    order=ok(action(client,case,order,'progress',stage='contact_supplier',message='追蹤聯絡'))
+    assert order['status']=='completed' and order['resolution']

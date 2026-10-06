@@ -12,6 +12,7 @@ from app.services import case_operations as ops
 from app.services.service_order_state import (TERMINAL, CASH_KINDS, linked_entries, cash_state,
                                              trip_pending, final_dues, ended_trip, financial_current)
 AMOUNT_FIELDS = (*CASH_KINDS, 'supplier_fee', 'agency_fee', 'final_customer_due')
+TERMINAL_NOTES = {'note', 'contact_supplier', 'contact_customer', 'correction'}
 
 
 def evidence(data, actor):
@@ -92,7 +93,7 @@ def view(db, case, order, ledger=None):
     actions = []
     if case.status.value != 'closed':
         if terminal:
-            actions = ['reopen']
+            actions = ['note', 'reopen']
         else:
             actions = ['edit', 'note', 'assess', 'resolve']
             if order['kind']=='change' and (order.get('supplier_result') or {}).get('outcome')=='confirmed':
@@ -161,7 +162,7 @@ def mutate(case_id, order_id, data, actor, action, apply):
     def execute(db, case):
         order = record(db, 'service_orders', case_id, order_id)
         ops.require(order['revision'] == data.expected_revision, '工作單已更新，請核對最新內容；本次未儲存')
-        ops.require(order['status'] not in TERMINAL or action in {'reopen', 'void_settlement'}, '工作單已結束，請先重新開單')
+        ops.require(order['status'] not in TERMINAL or action in TERMINAL_NOTES | {'reopen', 'void_settlement'}, '工作單已結束；可追加聯絡紀錄，其他處理請先重新開單')
         apply(db, case, order)
         order['revision'] += 1
         order['history'].append({'action': action, 'at': now_iso(), **evidence(data, actor),
@@ -235,7 +236,7 @@ def progress(case_id, order_id, data, actor):
         if data.stage in {'note', 'contact_supplier', 'contact_customer', 'safety_assistance', 'correction'}:
             if data.stage == 'safety_assistance':
                 ops.require(order['kind'] == 'incident', '立即協助紀錄只適用旅中事件')
-            if data.stage == 'contact_supplier' and not order.get('assessment'):
+            if data.stage == 'contact_supplier' and not order.get('assessment') and order['status'] not in TERMINAL:
                 order['status'] = 'awaiting_supplier'
         elif data.stage == 'withdraw':
             ops.require(not order.get('execution') and not order.get('supplier_result') and not linked_entries(order, rows(db, 'ledger', case.id)), '已處理或有款項，不可當成撤回需求')
