@@ -345,6 +345,9 @@ def main():
                         form.locator("[name=followup_at]").fill("2026-10-20T10:00")
                         save(form)
                         page.locator("[data-action=crm-reveal]").first.click()
+                        expect(page.locator("#crmMessageBody")).to_have_value(
+                            "PRIVATE-客訴原文"
+                        )
                         page.locator("[data-action=crm-message-form]").first.click()
                         form = page.locator("#communicationForm")
                         form.locator("[name=owner]").fill("小李")
@@ -479,6 +482,7 @@ def main():
                             not in page.locator("#sheetBody").inner_text(),
                         )
                         page.locator("#sheetBack").click()
+                        expect(page.locator("#sheetBack")).to_have_text("返回名冊與原件")
                         page.locator("#sheetBack").click()
                         expect(page.locator(".private-section")).to_have_count(2)
                         check("traveller services Back returns to original files sheet")

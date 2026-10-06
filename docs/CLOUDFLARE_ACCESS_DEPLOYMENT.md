@@ -1,6 +1,6 @@
 # Cloudflare Tunnel 與登入部署
 
-更新：2026-10-03。這次已完成應用程式的選配 Access 驗證；尚未建立真實 Tunnel、Access 應用或使用者帳號，也未做公開環境端到端測試。本機 8001 繼續使用 `AUTH_MODE=token`。
+更新：2026-10-07。應用程式已實作選配 Access 驗證；正式具名 Tunnel、Access 應用與使用者帳號尚未設定。本輪另外使用隔離資料與 production token 模式測試真實 Quick Tunnel，方法與結果見 [交付驗收](FINAL_ACCEPTANCE_ZH_TW.md)。本機 8001 使用開發環境的 `AUTH_MODE=token`，沒有設定管理 token，目前沒有登入保護，不可直接公開。
 
 ## 選擇
 
@@ -54,7 +54,9 @@ Docker healthcheck 使用 `/livez`，不需要登入；這只證明程序有回�
 
 ## 驗證範圍
 
-本地測試使用生成的 RSA 金鑰，涵蓋簽章／claim 錯誤、過期、無 email、陌生帳號、管理員限制、跨來源修改、精確豁免、快取／頻率限制／金鑰輪替與故障。真實 Cloudflare 登入、policy、MFA、cookie、DNS 與 Tunnel 均需在部署時驗證。未宣稱已上線。
+本地測試使用生成的 RSA 金鑰，涵蓋簽章／claim 錯誤、過期、無 email、陌生帳號、管理員限制、跨來源修改、精確豁免、快取／頻率限制／金鑰輪替與故障。真實具名 Tunnel、Access 身分登入、policy、MFA、cookie 與固定網域 DNS 均需在部署時驗證。隔離 Quick Tunnel 的 HTTPS／DNS／應用密碼登入測試不能代替這些正式驗收；未宣稱已上線。
+
+Cloudflare 於 2026-10-02 新增 Quick Tunnel 的 `--allowed-mail` Email OTP 保護，可作測試入口；它不是固定網域的部署替代品。本輪保護入口測試不填 Email 或寄送 OTP，因此不證明登入成功、JWT 傳遞或角色授權。[官方公告](https://developers.cloudflare.com/changelog/post/2026-10-02-protected-quick-tunnels/)與 [Quick Tunnel 限制](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/)已於 2026-10-07 核對。
 
 ## 上線前仍需驗收的項目
 

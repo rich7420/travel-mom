@@ -24,7 +24,7 @@ OpenClaw is optional. The shared web backend now supports consecutive customer i
 
 Mom Mode uses a warm paper and navy travel workspace, desktop side navigation, consistent line icons and numbered priority cases. The workspace adapts from two desktop columns to a single column with bottom navigation on mobile; secondary search history stays collapsed. Large text and touch controls remain available. See [visual and interaction QA](design/qa.md). Visible versions were removed from both UIs; engineering metadata and HTML comments retain the version.
 
-For future public Tunnel deployment use the optional Cloudflare Access mode, with signed JWT verification, explicit operator/admin accounts, protected pages/APIs, origin checks and bounded key refresh. See [deployment and InsForge decision](docs/CLOUDFLARE_ACCESS_DEPLOYMENT.md). The local preview remains in token/development mode; no public tunnel is provisioned.
+For public deployment use the optional Cloudflare Access mode, with signed JWT verification, explicit operator/admin accounts, protected pages/APIs, origin checks and bounded key refresh. See [deployment and InsForge decision](docs/CLOUDFLARE_ACCESS_DEPLOYMENT.md) and [delivery acceptance](docs/FINAL_ACCEPTANCE_ZH_TW.md). The local preview remains in development mode without a configured token; no production public tunnel is provisioned. Real Quick Tunnel tests use isolated synthetic data and a separate production-token server.
 
 ## What changed in v0.8.1
 

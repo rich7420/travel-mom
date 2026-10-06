@@ -59,3 +59,25 @@ WebKit 首輪及額外穩定性檢查曾偵測到舊頁面在重新整理後發�
 本機資料表更新前後逐表比對，僅 `agency_notification_state` 的正常 worker heartbeat 變動；原有 **42 個案件**及其餘資料表完全一致。媽媽模式、管理頁與 Guide 健康檢查通過，實際對外提醒通道仍停用。真實 SMTP／LINE 收件及公開 Cloudflare 登入驗收仍不在本輪範圍。
 
 本輪僅執行既有測試與更新驗證紀錄，沒有新增外部 reviewer approval。證據、來源 manifest、負向對照結果、Brave 截圖及本機資料 inventory 位於忽略版控的 `data/e2e-20261007/`，總報告為 `results.json`。
+
+## 2026-10-07 交付與真實 Cloudflare 驗證
+
+以 `82ed7c7` 為基底，應用程式沒有變更。新增可重跑的 `scripts/verify_cloudflare_tunnel.py`，只公開獨立的合成資料原站，使用 production token 模式，不公開本機 8001 或修改 `.env`。
+
+- Python 全套再次執行：**317 項**通過。
+- 修正兩處測試等待後，Chromium／Firefox／WebKit 的五套流程全數再次通過：每種 **238 項**，共 **714 項**；具 source manifest 的結果與目前應用及 runner 相符。
+- 安裝版 Brave 的可見、獨立 profile 經真正 Cloudflare HTTPS 完成 **49 項**：保留既有 48 個命名檢查，另驗實際密碼對話框、真實初始 401、載入資料與登入後無新 401。API seed 同樣經公開 HTTPS；沒有為瀏覽器注入認證 header。
+- 額外 **30 項**網路、瀏覽器與清理檢查通過，包含匿名／錯誤憑證拒絕、私人 API 不快取、停用 webhook、production 文件隱藏、直接原站仍需密碼，以及主 Tunnel 停止後無法連線。
+- 另開 `--allowed-mail` 保護入口，確認導向可信登入 broker、實際 Email 登入畫面及匿名探測未到原站。原站 log 有未保護探測的正對照。只允許 GET，不輸入 Email、不提交 OTP；停止後不可再連線。
+- 容器再次通過 **24 項**，包括並行寫入、重啟、加密備份、新 volume 還原及歷史；image 的全部應用檔案雜湊與工作區相符。
+- 驗收工具的三個負向對照通過：既有非空證據目錄拒絕、仍有本次程序的目錄拒絕、binary 雜湊錯誤時原站清理。另實際送出 SIGINT 後接 SIGTERM，確認第二次訊號沒有中止清理。
+
+實網延遲暴露了測試驅動的兩處同步假設：查看客訴後立即點到舊畫面的新增按鈕，以及兩次「返回」沒有等待中間畫面。補上對客訴原文／返回標籤的明確等待，保留所有原始斷言；沒有因失敗刪減檢查。首次 prototype 在 Playwright event loop 關閉後才清理，留下 loopback 測試 server；經 PID、命令與 log 確認後已停止該程序，未停止其他服務。後續改為在 event loop 關閉前停止 Tunnel／browser，並以外層 finally 清理原站、保存程序紀錄。另一失敗是 Telegram 停用狀態原本就回 200 零工作，已修正測試預期。保護入口首輪錯把 `login.trycloudflare.com` 視為非 Access，依 [2026.10.0 官方登入實作](https://github.com/cloudflare/cloudflared/blob/2026.10.0/quicktunnelauth/state.go) 修正後通過；未把一般 5xx 當成有效保護。
+
+全部成功實網測試的程序 PID 已消失，兩條臨時 Tunnel 都已停止。本機入口、管理頁與 Guide 仍回 200，42 個既有案件、零張工作單及停用對外通道保留。同輪前後 inventory 比對僅 worker heartbeat 變動；實網測試後又核對案件及新表筆數，沒有合成資料進入本機資料庫。
+
+Claude Code 以唯讀模式做設計與實作審查；高複雜度原因是登入、公開網路與程序生命週期。設計最終 **APPROVE**，第三輪實作 **REVISE**；已處理指出的 blocker／major：遺留程序、未通過實網流程、第二次訊號打斷清理、缺少 PID 證據，並由 Codex 完成上述重驗。遵守三輪上限，沒有第四輪最終 APPROVE。Usage gate 為 unknown（16 小時舊 snapshot），已依規定告知。保留的 minor 限制：browser 主 PID 清理證據不逐一證明所有 helper／crash reporter 結束；分頁同來源限制不涵蓋 Brave 的背景服務。
+
+證據位於忽略版控的 `data/final-acceptance-20261007/`，總報告為 `results.json`。實網成功結果在 `final-tunnel-acceptance/`，包含 49 項結果、30 項探測、原始／改編 source manifest 與 diff、git HEAD／未提交 diff 雜湊、binary 雜湊、登入畫面、PID 與清理紀錄；失敗與中斷的證據也保留。原站 log 含真實來源 IP，證據目錄不公開。
+
+核心可交給媽媽受控試用，正式具名 Tunnel、真實 Cloudflare 帳號／IdP／MFA／期限與分權、真實通知收件、異地與主機遺失復原及媽媽實際操作驗收仍未完成。這些限制及下一步見 [交付驗收](FINAL_ACCEPTANCE_ZH_TW.md)。
