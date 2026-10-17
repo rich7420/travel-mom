@@ -33,16 +33,25 @@
             <p class="section-kicker" id="todayDate">今天的旅行工作</p>
             <h2 id="todayTitle">今天，接續每趟旅行。</h2>
             <p id="todaySummary">正在整理今天的工作…</p>
-            <button id="primaryTodayAction" class="primary-button" type="button" data-action="new-case">＋ 新客人</button>
           </div>
-          <div class="hero-route" aria-hidden="true">
-            <svg viewBox="0 0 260 180" fill="none"><path d="M20 148C90 148 66 40 130 40s53 101 110 59" stroke="currentColor" stroke-width="1.5" stroke-dasharray="5 7"/><circle cx="20" cy="148" r="5" fill="currentColor"/><circle cx="240" cy="99" r="7" stroke="currentColor" stroke-width="2"/><path d="m127 29 14 20-11-3-8 7 5-24Z" fill="currentColor"/><path d="M38 46h35M56 28v35M185 148h23M197 137v23" stroke="currentColor" opacity=".35"/></svg>
-            <span>接續客人的下一步</span>
+          <div class="hero-action">
+            <button id="primaryTodayAction" class="primary-button" type="button" data-action="new-case">＋ 新客人</button>
           </div>
           <div class="workflow-rail" aria-label="一般工作流程，非案件進度"><span><i>01</i> 接單查價</span><span><i>02</i> 報價回覆</span><span><i>03</i> 訂購收款</span><span><i>04</i> 行前交付</span></div>
         </div>
 
         <section class="section-block" aria-labelledby="deadlineHomeTitle"><div class="section-heading split"><div><h2 id="deadlineHomeTitle">工作期限</h2><p>台北時間；全部逾期與今日待辦。</p></div><button class="text-button" type="button" data-nav="tasks">全部待辦 →</button></div><div id="homeDeadlines" class="stack"><p class="muted">載入工作期限…</p></div></section>
+
+        <div class="workspace-grid">
+        <section class="section-block priority-section" aria-labelledby="priorityTitle">
+          <div class="section-heading split">
+            <div><h2 id="priorityTitle">今天要處理</h2><p>依工作期限、出發日與進度排序。</p></div>
+            <button class="text-button" type="button" data-action="refresh-home">重新整理</button>
+          </div>
+          <div id="priorityList" class="stack" role="list" aria-label="優先處理案件"><div class="skeleton-card">載入中…</div></div>
+        </section>
+
+        <div class="workspace-side">
         <section class="section-block" aria-labelledby="quickTitle">
           <div class="section-heading">
             <h2 id="quickTitle">常用工作</h2>
@@ -55,18 +64,6 @@
             <button class="quick-card" type="button" data-action="hotel-search"><span class="shortcut-icon" data-icon="hotel"></span><span><b>查飯店</b><small>房型與住宿條件</small></span></button>
           </div>
         </section>
-
-
-        <div class="workspace-grid">
-        <section class="section-block priority-section" aria-labelledby="priorityTitle">
-          <div class="section-heading split">
-            <div><h2 id="priorityTitle">今天要處理</h2><p>依工作期限、出發日與進度排序。</p></div>
-            <button class="text-button" type="button" data-action="refresh-home">重新整理</button>
-          </div>
-          <div id="priorityList" class="stack" role="list" aria-label="優先處理案件"><div class="skeleton-card">載入中…</div></div>
-        </section>
-
-        <div class="workspace-side">
         <section class="section-block" aria-labelledby="recentTitle">
           <div class="section-heading split"><h2 id="recentTitle">最近案件</h2><button class="text-button" type="button" data-nav="cases">全部案件 →</button></div>
           <div id="recentCases" class="stack"><div class="skeleton-card">載入中…</div></div>
@@ -143,7 +140,7 @@
     </nav>
   </div>
 
-  <dialog id="sheet" class="sheet-dialog" aria-labelledby="sheetTitle"><div class="sheet"><div class="sheet-handle"></div><div class="sheet-head"><button type="button" id="sheetBack" class="text-button hidden">返回案件</button><h2 id="sheetTitle">處理工作</h2><a id="sheetHelp" class="guide-link" href="/static/guide.html#start" target="_blank" rel="noopener">操作說明 <small>另開分頁 ↗</small></a><button type="button" class="close-button" data-action="close-sheet" aria-label="關閉">×</button></div><div id="sheetBody"></div></div></dialog>
+  <dialog id="sheet" class="sheet-dialog" aria-labelledby="sheetTitle"><div class="sheet"><div class="sheet-handle"></div><div class="sheet-head"><button type="button" id="sheetBack" class="text-button hidden">返回案件</button><h2 id="sheetTitle"><span id="sheetTitleText">處理工作</span></h2><a id="sheetHelp" class="guide-link" href="/static/guide.html#start" target="_blank" rel="noopener">操作說明 <small>另開分頁 ↗</small></a><button type="button" class="close-button" data-action="close-sheet" aria-label="關閉">×</button></div><div id="sheetBody"></div></div></dialog>
   <dialog id="onboardingDialog" class="center-dialog"><form id="onboardingForm" method="dialog" class="dialog-card"><p class="section-kicker">第一次使用</p><h2>先幫您記住兩件事</h2><p class="muted">之後查價就不用每次重填。</p><label><span>平常從哪個機場出發？</span><select id="onboardingOrigin"><option value="TPE">桃園 TPE</option><option value="TSA">松山 TSA</option><option value="KHH">高雄 KHH</option><option value="RMQ">台中 RMQ</option></select></label><fieldset><legend>字體大小</legend><div class="radio-row"><label><input type="radio" name="onboardingFont" value="large" checked>大字</label><label><input type="radio" name="onboardingFont" value="xlarge">特大字</label><label><input type="radio" name="onboardingFont" value="normal">一般</label></div></fieldset><button class="primary-button full" type="submit">開始使用</button></form></dialog>
   <dialog id="loginDialog" class="center-dialog" aria-labelledby="loginTitle" aria-describedby="loginMessage"><div class="dialog-card"><h2 id="loginTitle">請重新登入</h2><p id="loginMessage">請先在另一個分頁登入，再回來繼續。原案件與未送出的文字保留在本分頁。</p><a class="secondary-button full login-link" href="/" target="_blank" rel="noopener">開啟登入頁（另開分頁）</a><button class="primary-button full" type="button" data-action="login">我已登入，繼續處理</button></div></dialog>
   <dialog id="tokenDialog" class="center-dialog"><form id="tokenForm" method="dialog" class="dialog-card"><h2>連線密碼</h2><p class="muted">只有系統啟用管理密碼時才需要。密碼只存在這個瀏覽器分頁，不會寫入案件。</p><label><span>管理密碼</span><input id="tokenInput" type="password" autocomplete="off"></label><div class="button-row"><button class="secondary-button" type="button" data-action="clear-token">清除</button><button class="primary-button" type="submit">套用</button></div></form></dialog>

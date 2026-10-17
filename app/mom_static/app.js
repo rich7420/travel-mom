@@ -64,6 +64,7 @@ const iconPaths = {
   reply:'<path d="M21 11a8 8 0 0 1-8 8H7l-4 3V11a9 9 0 0 1 18 0ZM7 10h10M7 14h6"/>',
   plane:'<path d="m21 3-6 18-4-8-8-4Z"/><path d="m11 13 10-10"/>',
   hotel:'<path d="M5 21V3h14v18M3 21h18M9 7h1m4 0h1M9 11h1m4 0h1M10 21v-6h4v6"/>',
+  receipt:'<path d="M5 3h14v18l-3-2-4 2-4-2-3 2V3ZM9 8h6M9 12h6"/>',
   settings:'<path d="m9 3-.5 3-2.5 1-2.5-1.5-2 3L4 11v2l-2.5 2.5 2 3L6 17l2.5 1 .5 3h6l.5-3 2.5-1 2.5 1.5 2-3L20 13v-2l2.5-2.5-2-3L18 7l-2.5-1-.5-3Z"/><circle cx="12" cy="12" r="3"/>',
 };
 function icon(name) {
@@ -142,9 +143,10 @@ function openSheet(title, html, resetScroll = true, helpSection = 'start', caseI
   renderedSheetGeneration=sheetGeneration;
   authorizedGeneration=-1;
   setSheetBack(caseId && helpSection!=='new-case' ? ()=>openCase(caseId) : null);
-  sheetTitle.textContent = title;
+  $('#sheetTitleText').textContent = title;
   $('#sheetHelp').href = `/static/guide.html#${helpSection}`;
-  sheetBody.innerHTML = html;
+  const fullTitle = title.length > 18 ? `<details class="sheet-full-title"><summary>查看完整標題</summary><p>${escapeHtml(title)}</p></details>` : '';
+  sheetBody.innerHTML = fullTitle + html;
   sheetBody.querySelectorAll('select[name="case_id"]').forEach(el=>{el.dataset.previous=el.value;});
   if (!sheet.open) sheet.showModal();
   if (resetScroll) { $('.sheet').scrollTop = 0; sheetTitle.tabIndex=-1; sheetTitle.focus({preventScroll:true}); }
@@ -197,7 +199,7 @@ async function boot() {
     const health = await api('/health');
     const badge = $('#connectionBadge');
     state.openclawEnabled = health.openclaw_enabled;
-    badge.textContent = health.openclaw_enabled ? '自動查詢已設定' : '網頁工作模式';
+    badge.textContent = health.openclaw_enabled ? '自動查詢已設定' : '已連線';
     badge.className = `status-badge ${health.openclaw_enabled ? 'status-ok' : 'status-neutral'}`;
   } catch (err) {
     if (err instanceof ReauthenticationError) return;
@@ -338,8 +340,17 @@ async function openCase(caseId) {
       ['add-manual','＋ 錄入供應商方案'], ['flight-search','查機票'], ['hotel-search','查飯店'], ['customer-reply','回覆這位客人'],
     ].map(([action,label])=>`<button class="secondary-button full" type="button" data-action="${action}" data-case-id="${escapeHtml(c.id)}">${label}</button>`).join('');
     const selections = (data.selections || []).map(option=>`<div class="notice-card ${option.usable?'ok':'warn'}"><b>已選${option.kind==='flight'?'機票':'住宿'}：</b>${escapeHtml(option.title)}${option.usable?'':`<p>${escapeHtml(option.blockers.join('；'))}</p>`}</div>`).join('');
+    const overview = `<div class="notice-card case-next">
+      <div><b>下一步：${escapeHtml(a.label)}</b><p class="muted">${escapeHtml(a.reason)}</p></div>
+      <div class="operation-actions">${primary}</div>
+    </div><dl class="case-facts">
+      <div class="case-date"><dt>日期</dt><dd>${escapeHtml(c.depart_date || '未定')} ${c.return_date ? `→ ${escapeHtml(c.return_date)}` : ''}</dd></div>
+      <div><dt>旅客</dt><dd><span class="traveller-count">${c.adults} 大人</span>、<span class="traveller-count">${c.children} 小孩</span>、<span class="traveller-count">${c.infants || 0} 嬰兒</span>${c.children?`<br>小孩年齡：${escapeHtml(c.children_ages?.join('、') || '待補齊')}`:''}</dd></div>
+      <div><dt>預算</dt><dd>${c.budget_twd !== null ? `NT$ ${Number(c.budget_twd).toLocaleString()}` : '尚未設定'}</dd></div>
+      <div class="case-notes"><dt>偏好與備註</dt><dd class="preserve-lines">${escapeHtml(c.notes || '尚未填寫')}</dd></div>
+    </dl>`;
     if (!sheetRequestCurrent(sheetToken)) return;
-    if(!openSheet(`${c.customer_name} · ${c.destination || '旅行案件'}`, `<div class="notice-card"><b>下一步：${escapeHtml(a.label)}</b><br><span class="muted">${escapeHtml(a.reason)}</span><div class="operation-actions">${primary}</div></div><div class="form-grid"><div><b>日期</b><p>${escapeHtml(c.depart_date || '未定')} ${c.return_date ? `→ ${escapeHtml(c.return_date)}` : ''}</p></div><div><b>旅客</b><p>${c.adults} 大人、${c.children} 小孩、${c.infants || 0} 嬰兒${c.children?`<br>小孩年齡：${escapeHtml(c.children_ages?.join('、') || '待補齊')}`:''}</p></div><div><b>預算</b><p>${c.budget_twd !== null ? `NT$ ${Number(c.budget_twd).toLocaleString()}` : '尚未設定'}</p></div><div><b>偏好與備註</b><p>${escapeHtml(c.notes || '尚未填寫')}</p></div></div>${selections}${caseOperationTiles(c,operations)}<div class="operation-actions"><button type="button" class="secondary-button" data-action="crm-open" data-case-id="${escapeHtml(caseId)}">客戶與聯絡紀錄</button><button type="button" class="secondary-button" data-action="reminder-open" data-case-id="${escapeHtml(caseId)}">自動提醒與寄送紀錄</button></div>${c.status==='closed'?'<p class="muted">已結案案件保留業務歷史，仍可追加客戶聯絡紀錄；變更業務資料請先重新開案。</p>':`<details class="sales-actions"><summary>查價、選案與修改需求</summary><div class="stack">${buttons}</div></details>`}`,true,'new-case',caseId,sheetToken))return;
+    if(!openSheet(`${c.customer_name} · ${c.destination || '旅行案件'}`, `${overview}${selections}${caseOperationTiles(c,operations)}<div class="operation-actions"><button type="button" class="secondary-button" data-action="crm-open" data-case-id="${escapeHtml(caseId)}">客戶與聯絡紀錄</button><button type="button" class="secondary-button" data-action="reminder-open" data-case-id="${escapeHtml(caseId)}">自動提醒與寄送紀錄</button></div>${c.status==='closed'?'<p class="muted">已結案案件保留業務歷史，仍可追加客戶聯絡紀錄；變更業務資料請先重新開案。</p>':`<details class="sales-actions"><summary>查價、選案與修改需求</summary><div class="stack">${buttons}</div></details>`}`,true,'new-case',caseId,sheetToken))return;
     return true;
   } catch (err) { cancelSheetRequest(sheetToken); if (err instanceof ReauthenticationError) return; showToast(friendlyError(err)); }
 }
@@ -765,7 +776,8 @@ function caseOperationTiles(c, ops) {
   if(!ops)return `<div class="notice-card warn" role="alert">業務紀錄暫時無法讀取，請重新載入核對。<button class="secondary-button" type="button" data-action="open-case" data-case-id="${escapeHtml(c.id)}">重新載入業務紀錄</button></div>`;
   const counts={quotes:ops.quotes.length,tasks:ops.work_items.filter(i=>i.status==='open').length,bookings:ops.bookings.filter(b=>b.status==='confirmed').length,ledger:ops.ledger.filter(e=>e.status!=='voided').length,pretrip:ops.documents.filter(d=>d.required&&(d.status!=='ready'||d.needs_recheck||d.booking_id&&!ops.bookings.some(b=>b.id===d.booking_id&&b.status==='confirmed'&&b.binding_current))).length};
   const labels={quotes:'報價版本',tasks:'期限與改退',bookings:'訂購確認',ledger:'收付款',pretrip:'行前交付'};
-  return `<h3>案件工作</h3><div class="operation-tiles">${Object.entries(labels).map(([module,label])=>`<button class="secondary-button" type="button" data-action="ops-open" data-module="${module}" data-case-id="${escapeHtml(c.id)}"><b>${label}</b><small>${module==='pretrip'?`${counts[module]} 項待補文件`:`${counts[module]} 筆紀錄`}</small></button>`).join('')}</div><button class="secondary-button full lifecycle-entry" type="button" data-action="ops-open" data-module="lifecycle" data-case-id="${escapeHtml(c.id)}">結案與重新開案</button>`;
+  const icons={quotes:'reply',tasks:'tasks',bookings:'folder',ledger:'receipt',pretrip:'plane'};
+  return `<h3 class="case-work-heading">案件工作</h3><div class="operation-tiles">${Object.entries(labels).map(([module,label])=>`<button class="secondary-button" type="button" data-action="ops-open" data-module="${module}" data-case-id="${escapeHtml(c.id)}"><span class="operation-tile-icon">${icon(icons[module])}</span><b>${label}</b><small>${module==='pretrip'?`${counts[module]} 項待補文件`:`${counts[module]} 筆紀錄`}</small></button>`).join('')}</div><button class="secondary-button full lifecycle-entry" type="button" data-action="ops-open" data-module="lifecycle" data-case-id="${escapeHtml(c.id)}">結案與重新開案</button>`;
 }
 $('#sheetBack').addEventListener('click',()=>runAction(()=>sheetBack?.()));
 // closeSheet and cancel invalidate requests synchronously; a queued native close

@@ -1,5 +1,35 @@
 # Mom Mode design QA
 
+## Workspace refinement · 2026-10-17
+
+Source: [current brief](context.md#workspace-polish--2026-10-17). Preview: local Mom Mode `/` on port 8001. Scope: homepage, case overview, shared work sheets and presentation styling. The original verification entries below are historical results.
+
+The homepage now places deadlines before a two-column workspace: priority cases on the left, common work and recent/history on the right. The mobile DOM keeps this reading order. The decorative route graphic is removed; the primary action is beside the compact hero text. At 1360px with large text, the hero is about **211px** tall (baseline about 304px), and the first priority card starts near **y=575**, fully inside the 900px viewport. Normal/extra-large measurements are also saved. Secondary case actions have less visual weight than the first recommendation.
+
+The case overview uses labeled date, traveller and budget facts, full-width notes with preserved line breaks, and icon/text entries for the same five work modules. Desktop uses a centered, bounded scrollable dialog; phones retain the bottom sheet. A stress screenshot caught an oversized sticky title despite the original layout probes passing. The heading is now bounded to three lines, with the full escaped title available in a native disclosure. The added height and expand/collapse assertions catch this regression.
+
+| Requirement | Current evidence | Result |
+| --- | --- | --- |
+| Actual work visible early | Compact hero, first full priority card in 1360×900 for all three font settings; before/after screenshots inspected | Pass |
+| Urgent deadlines remain complete | Seven overdue/today records displayed without a four-item limit | Pass |
+| Responsive reading order | 360/390/768/1024/1360px, normal/large/extra-large; visual order follows the DOM | Pass |
+| Facts and original actions | Exact family counts, multiline notes, existing record counts and all five work entries retained | Pass |
+| Work-sheet controls | All five SVG entries open their original modules; Back restores focus; Escape closes; Close remains inside scrolled sheet | Pass |
+| Long names and notes | Unbroken destination, long customer name, literal HTML in notes, bounded sticky heading and expandable complete title | Pass |
+| Degraded refresh | Existing cases remain visible with retry after a simulated 503; retry recovers | Pass |
+| Layout and controls | No horizontal clipping in checked surfaces; visible buttons/help/summary targets at least 44×44px | Pass |
+| Data and safety | Disposable data and keys; outbound integrations disabled; existing 8001 still serves Mom/admin/Guide and retains 42 cases, zero test service orders/customers/jobs | Pass |
+
+Chromium, Firefox and WebKit each passed the original **238** checks plus **137** focused layout checks: **714 existing + 411 new** across the three engines. The installed headed Brave, with an isolated profile and verified native PID/command, passed another **137** checks; its owned main PID was closed. Reports with source manifests match the current application. No JavaScript errors were recorded. Three isolated negative controls fail at the intended assertions: the original homepage loses the first-card viewport guarantee, removing the title bound fails the long-header guarantee, and restoring first-child emphasis fails the refresh-error emphasis guarantee.
+
+Python full suite passes **317**. The first full run exposed an existing date-dependent test-isolation failure: other tests' fixed departure dates tied the deliberately old urgent case and correctly competed for the four priority slots. The same test passed alone. It now uses a private temporary database via the existing settings/initialization pattern; its original ordering assertion is unchanged, and the complete suite passes. The production ranking code is unchanged. Guide generation, JavaScript syntax, new runner lint and whitespace checks pass.
+
+Evidence: ignored `data/ui-refinement-20261017/`, including `before/`, each engine's `verified-*/layout/`, `brave-final/`, source manifests, geometry measurements, failed/full Python logs, independent reviewer outputs and the three verified negative controls. The repeatable layout runner is [verify_workspace_layout.py](../scripts/verify_workspace_layout.py). Physical phones, manual screen-reader conformance, Mom's usability acceptance, and a new public Tunnel/identity run were not performed in this UI increment.
+
+Cursor's first completed implementation review returned **REVISE**. The clamp now sits on an inner span while the focused heading retains its explicit focus ring; the first priority retains emphasis after a prepended error notice; the desktop sticky-header offset removes the observed 4px content strip; unused flex styling and the desktop shadow were corrected. Added keyboard-focus, scroll-coverage and error-emphasis assertions pass across the checked engines. Final frontend implementation review: **three independent Cursor `auto` reviews all APPROVE** (design/simplicity; correctness/privacy/compatibility; tests/failure cases/evidence), against the same frozen diff. The installed GPT high-reasoning models were rejected by Cursor's monthly usage limit, so the three-session auto fallback followed the user's review rule. Design-check attempts returned progress text without a formal verdict; one design follow-up and two initial implementation reviews timed out. Those attempts are preserved rather than counted as approvals. The correctness reviewer approved after its fixes; fresh independent simplicity/evidence sessions approved the same final change. No reviewer finding is intentionally left unfixed. The evidence reviewer explicitly limited its browser-evidence verdict to Chromium; Codex separately verified all final Firefox/WebKit/Brave results and source manifests. Verdict: **READY for local UI review**, with the physical-device, assistive-technology and Mom acceptance limits above.
+
+---
+
 Date: 2026-10-03. Context: [design brief](context.md). Scope: existing local Mom UI and web authentication behavior; no public deployment.
 
 The revised interface follows the travel-workspace direction: warm paper, deep navy, restrained terracotta, a composed hero, consistent decorative SVG line icons, numbered priority cases and compact secondary history. Desktop side navigation transforms into mobile bottom navigation. The general workflow rail is explicitly labeled and does not imply booking completion.

@@ -245,9 +245,14 @@ def test_official_results_in_mom_view_selection_and_demo_blocking(client,monkeyp
     assert select(client,case,latest).status_code==409
 
 
-def test_older_urgent_case_is_not_lost_among_recent_cases(client):
+def test_older_urgent_case_is_not_lost_among_recent_cases(client, tmp_path, monkeypatch):
+    from dataclasses import replace
+    import app.db as database
     from app.db import connect
     from datetime import date
+    # Other tests may have equally urgent fixed-date cases in the shared DB.
+    monkeypatch.setattr(database, 'settings', replace(database.settings, db_path=str(tmp_path / 'urgent.db')))
+    database.init_db()
     urgent=create_case(client,depart_date=(date.today()+timedelta(days=1)).isoformat(),return_date=(date.today()+timedelta(days=5)).isoformat())
     with connect() as db:
         db.execute("UPDATE trip_cases SET updated_at='2020-01-01T00:00:00Z' WHERE id=?",(urgent['id'],))
